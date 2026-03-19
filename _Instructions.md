@@ -116,6 +116,7 @@ Open `http://localhost:7860` in your browser.
 
 #### On Terminal:
 
+
 cd "/Users/ik/UVcodes/StocksAnalysisDashboard"
 git clone https://huggingface.co/spaces/irajkoohi/StocksAnalysisDashboard
 cd StocksAnalysisDashboard

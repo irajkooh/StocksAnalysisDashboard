@@ -1,7 +1,7 @@
 # ── Core framework ────────────────────────────────────────────────────────────
 fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
-gradio>=4.31.0
+gradio>=4.31.0   # Commented out due to audioop error in Python 3.13
 pydantic>=2.0.0
 
 # ── LangGraph / LangChain ─────────────────────────────────────────────────────
