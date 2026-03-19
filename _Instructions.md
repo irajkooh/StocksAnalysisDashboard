@@ -128,6 +128,7 @@ cp "$SRC/frontend.py"         .
 cp "$SRC/config.py"           .
 cp "$SRC/session.json" .
 cp "$SRC/README.md"           .
+cp "$SRC/runtime.txt"           .
 cp "$SRC/requirements.txt"    .
 cp "$SRC/_Plan.md"            .
 cp "$SRC/_Instructions.md"    .
