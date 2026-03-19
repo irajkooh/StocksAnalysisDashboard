@@ -210,7 +210,7 @@ def main():
 
     env    = "HuggingFace Spaces" if IS_HF_SPACE else "Local"
     device = get_device_label()
-    llm    = {"ollama": f"Ollama / {OLLAMA_MODEL}", "groq": f"Groq / {GROQ_MODEL}", "hf": f"HF / {HF_MODEL}"}.get(LLM_PROVIDER, LLM_PROVIDER)
+    llm    = {"ollama": f"Ollama / {OLLAMA_MODEL}", "groq": f"Groq / {GROQ_MODEL}", "hf": f"huggingface ({HF_MODEL})"}.get(LLM_PROVIDER, LLM_PROVIDER)
 
     # Step 2 — kill occupied ports
     print("\n  🔧  Checking ports…")
