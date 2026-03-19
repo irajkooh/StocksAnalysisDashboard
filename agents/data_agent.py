@@ -3,11 +3,24 @@ agents/data_agent.py — Data Agent
 Fetches OHLCV price data, company info, and financials via yfinance.
 """
 
+import time
 import logging
 from agents.state import AnalysisState
 from config import DEFAULT_PERIOD, DEFAULT_INTERVAL, INTRADAY_INTERVAL
 
 logger = logging.getLogger(__name__)
+
+
+def _fetch_with_retry(stock, period, interval, retries=3, delay=5):
+    for attempt in range(retries):
+        df = stock.history(period=period, interval=interval, auto_adjust=True)
+        if not df.empty:
+            return df
+        if attempt < retries - 1:
+            logger.warning(f"yfinance empty/rate-limited, retrying in {delay}s…")
+            time.sleep(delay)
+            delay *= 2
+    return df
 
 
 def data_agent(state: AnalysisState) -> AnalysisState:
@@ -27,7 +40,7 @@ def data_agent(state: AnalysisState) -> AnalysisState:
         # OHLCV — switch to intraday if short period requested
         if period in ("1d", "5d"):
             interval = INTRADAY_INTERVAL
-        df = stock.history(period=period, interval=interval, auto_adjust=True)
+        df = _fetch_with_retry(stock, period, interval)
 
         if df.empty:
             errors.append(f"No OHLCV data returned for {ticker}")
