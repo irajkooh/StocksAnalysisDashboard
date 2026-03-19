@@ -867,10 +867,7 @@ def build_app():
             if not q or not ticker:
                 return history or [], ""
             answer = _chat_api(ticker, q)
-            new_h = list(history or []) + [
-                {"role": "user",      "content": q},
-                {"role": "assistant", "content": answer},
-            ]
+            new_h = list(history or []) + [[q, answer]]
             _chat_history.setdefault(ticker, [])
             _chat_history[ticker].append([q, answer])
             if len(_chat_history[ticker]) > MAX_CHATBOT_MEMORY:
