@@ -1,8 +1,8 @@
 # ── Core ──────────────────────────────────────────────────────────────────────
-fastapi>=0.123.0
-uvicorn[standard]>=0.38.0
-gradio>=5.50.0
-pydantic>=2.12.0
+# fastapi and gradio are injected by HF Spaces (fastapi<0.113.0, gradio==4.31.0)
+# Pinning them here conflicts with the Space build — omit and let the platform manage.
+uvicorn[standard]>=0.14.0
+pydantic>=1.10.0
 
 # ── LangGraph ─────────────────────────────────────────────────────────────────
 langgraph>=1.0.4
