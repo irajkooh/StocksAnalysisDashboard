@@ -161,7 +161,7 @@ def _build_llm_prompt(state: AnalysisState, decision: Dict, reasons: list) -> st
     return f"""You are a professional equity analyst writing a concise day-trading analysis report.
 
 STOCK: {ticker} | LAST PRICE: ${price:.2f}
-OWNS STOCK: {"Yes" % owns if owns else "No"}
+OWNS STOCK: {"Yes" if owns else "No"}
 
 DECISION: {decision['action']}
 COMPOSITE SCORE: {decision['score']}/10

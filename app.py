@@ -155,6 +155,7 @@ def start_frontend():
     from frontend import build_app, CSS, THEME
     logger.info(f"Gradio frontend binding on port {FRONTEND_PORT}…")
     demo = build_app()
+    import tempfile
     demo.launch(
         server_name="0.0.0.0",
         server_port=FRONTEND_PORT,
@@ -163,6 +164,7 @@ def start_frontend():
         quiet=True,
         css=CSS,
         theme=THEME,
+        allowed_paths=[tempfile.gettempdir()],
     )
 
 

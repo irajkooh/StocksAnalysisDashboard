@@ -1,13 +1,14 @@
 {
   "version": "1.0",
-  "saved_at": "2026-03-18T17:46:35.386211",
+  "saved_at": "2026-03-19T03:13:05.761642",
   "symbols": [
     "OPEN",
     "MSTZ",
     "MSFT",
     "AAPL",
     "CONL",
-    "SCO"
+    "SCO",
+    "USO"
   ],
   "owned": {
     "OPEN": false,
@@ -15,7 +16,8 @@
     "MSFT": false,
     "AAPL": false,
     "CONL": false,
-    "SCO": false
+    "SCO": false,
+    "USO": false
   },
   "watchlist": [
     "TTD",
