@@ -171,7 +171,7 @@ def start_backend():
 def start_frontend():
     time.sleep(2)   # give backend a moment to bind
     from config import FRONTEND_PORT, IS_HF_SPACE
-    from frontend import build_app, CSS, THEME
+    from frontend import build_app
     logger.info(f"Gradio frontend binding on port {FRONTEND_PORT}…")
     demo = build_app()
     import tempfile
@@ -181,8 +181,6 @@ def start_frontend():
         share=False,
         show_error=True,
         quiet=True,
-        css=CSS,
-        theme=THEME,
         allowed_paths=[tempfile.gettempdir()],
     )
 

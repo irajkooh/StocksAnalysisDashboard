@@ -483,7 +483,7 @@ def build_app():
     _watchlist.extend(session.get("watchlist", list(DEFAULT_WATCHLIST)))
     saved_ref   = session.get("refresh_interval", "Off")
 
-    demo = gr.Blocks(title="Stocks Analysis Dashboard")
+    demo = gr.Blocks(title="Stocks Analysis Dashboard", css=CSS, theme=THEME)
 
     with demo:
         gr.HTML(_status_bar())
