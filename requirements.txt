@@ -1,40 +1,13 @@
-# ── Core ──────────────────────────────────────────────────────────────────────
-# fastapi and gradio are injected by HF Spaces (fastapi<0.113.0, gradio==4.31.0)
-# Pinning them here conflicts with the Space build — omit and let the platform manage.
-uvicorn[standard]>=0.14.0
-pydantic>=1.10.0
+# NOTE: fastapi and gradio are injected by HF Spaces (fastapi<0.113.0, gradio==4.31.0)
 
-# ── LangGraph ─────────────────────────────────────────────────────────────────
-langgraph>=1.0.4
-langchain>=1.1.0
-langchain-core>=1.1.0
-langchain-community>=0.4.1
-langchain-ollama>=1.0.0
-
-# ── LLM ───────────────────────────────────────────────────────────────────────
-groq>=0.9.0
-
-# ── Market data ───────────────────────────────────────────────────────────────
-yfinance>=1.2.0
-pandas>=2.3.0
-numpy>=2.3.0
-
-# ── Charts ────────────────────────────────────────────────────────────────────
-plotly>=6.6.0
-mplfinance>=0.12.10b0
-matplotlib>=3.9.0
-Pillow>=10.0.0
-
-# ── Sentiment ─────────────────────────────────────────────────────────────────
-requests>=2.32.0
-praw>=7.7.0
-newsapi-python>=0.2.7
-beautifulsoup4>=4.14.0
-
-# ── TTS ───────────────────────────────────────────────────────────────────────
-gTTS>=2.5.0
-
-# ── Utilities ─────────────────────────────────────────────────────────────────
-python-dotenv>=1.2.0
-httpx>=0.28.0
-aiofiles>=24.1.0
+# Commenting them out here avoids the build conflict; uncomment for local installs.
+# fastapi>=0.100.0
+# gradio>=4.0.0
+uvicorn>=0.22.0
+httpx>=0.24.0
+yfinance>=0.2.0
+pandas>=2.0.0
+numpy>=1.24.0
+plotly>=5.0.0
+ta>=0.11.0
+pytz>=2023.3
