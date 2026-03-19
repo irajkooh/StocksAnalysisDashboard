@@ -151,7 +151,7 @@ def _score_to_decision(score: float, owns: bool) -> Dict:
 
 def _build_llm_prompt(state: AnalysisState, decision: Dict, reasons: list) -> str:
     ticker = state.get("ticker", "")
-    price  = state.get("indicators", {}).get("price", 0)
+    price  = float(state.get("indicators", {}).get("price", 0) or 0)
     dcf    = state.get("dcf", {})
     fund   = state.get("fundamentals", {})
     risk   = state.get("risk", {})
@@ -172,10 +172,10 @@ KEY SIGNALS:
 {chr(10).join(f"• {r}" for r in reasons)}
 
 TECHNICAL SNAPSHOT:
-- RSI: {state.get('indicators', {}).get('rsi', 'N/A'):.1f}  ({state.get('indicators', {}).get('rsi_state', '')})
+- RSI: {float(state.get('indicators', {}).get('rsi', 50)):.1f}  ({state.get('indicators', {}).get('rsi_state', '')})
 - MACD Cross: {state.get('indicators', {}).get('macd_cross', 'N/A')}
-- ATR: ${state.get('indicators', {}).get('atr', 0):.2f}
-- Stochastic K/D: {state.get('indicators', {}).get('stoch_k', 0):.1f} / {state.get('indicators', {}).get('stoch_d', 0):.1f}
+- ATR: ${float(state.get('indicators', {}).get('atr', 0)):.2f}
+- Stochastic K/D: {float(state.get('indicators', {}).get('stoch_k', 0)):.1f} / {float(state.get('indicators', {}).get('stoch_d', 0)):.1f}
 
 VALUATION:
 - DCF Intrinsic Value: ${dcf.get('intrinsic_value', 'N/A')}

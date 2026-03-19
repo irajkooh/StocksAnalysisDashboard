@@ -55,6 +55,7 @@ class LLMChatRequest(BaseModel):
 
 # ─── Cache (simple in-memory, per ticker) ─────────────────────────────────────
 _analysis_cache: dict = {}
+_charts_cache:   dict = {}   # ticker → {tf: base64_png}
 CACHE_TTL = 300  # seconds
 
 
@@ -91,8 +92,14 @@ def analyze(req: AnalyzeRequest):
         interval   = req.interval,
     )
 
+    # Cache charts separately (large base64 blobs — not sent in main response)
+    charts = state.get("charts", {})
+    if charts:
+        _charts_cache[ticker] = charts
+
     # Serialize: DataFrames are not JSON-serializable, remove them
     result = _serialize_state(state)
+    result.pop("charts", None)   # strip from main response
 
     _analysis_cache[cache_key] = {"_ts": time.time(), "data": result}
     return result
@@ -159,6 +166,16 @@ def get_session():
 def save_session_endpoint(req: SaveRequest):
     ok = save_session(req.symbols, req.owned, req.watchlist, req.refresh_interval)
     return {"ok": ok}
+
+
+@app.get("/chart/{ticker}/{tf}")
+def get_chart(ticker: str, tf: str):
+    ticker = ticker.upper().strip()
+    charts = _charts_cache.get(ticker, {})
+    b64    = charts.get(tf)
+    if not b64:
+        raise HTTPException(404, f"No chart for {ticker}/{tf}")
+    return {"b64": b64}
 
 
 @app.get("/workflow")

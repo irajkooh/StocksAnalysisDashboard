@@ -41,6 +41,9 @@ class AnalysisState(TypedDict, total=False):
     llm_summary:     str
     llm_chatbot_ctx: str
 
+    # ── Session pricing (from TechnicalAgent) ─────────────────────────────────
+    session_info:    Dict   # pre/regular/post market price, change, pct
+
     # ── Chart data ────────────────────────────────────────────────────────────
     chart_json:      str    # plotly fig.to_json()
 

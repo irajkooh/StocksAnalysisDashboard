@@ -116,21 +116,40 @@ def print_banner(backend_port, frontend_port, env, device, llm):
     BOLD  = "\033[1m"
     RESET = "\033[0m"
 
-    width = 62
-    line  = "─" * width
+    width = 62  # inner width between ║ and ║
+
+    def _row(label, value, vcolor=""):
+        """Render a labeled row, accounting for wide emoji in value."""
+        wide = sum(1 for c in value if ord(c) > 0xFFFF or c in "🔵🟢⚪🟡🔴")
+        pad  = width - 16 - len(value) - wide
+        return (f"{BLUE}{BOLD}║{RESET}  {CYAN}{label}:{RESET}  "
+                f"{vcolor}{value}{RESET}{' ' * max(pad, 0)}{BLUE}{BOLD}║{RESET}")
+
+    def _url_row(label, port):
+        url = f"http://localhost:{port}"
+        pad = width - 16 - len(url)
+        return (f"{BLUE}{BOLD}║{RESET}  {CYAN}{label}:{RESET}  "
+                f"{GREEN}{url}{RESET}{' ' * max(pad, 0)}{BLUE}{BOLD}║{RESET}")
+
+    # Title — 📊 is 2 columns wide, Python len() counts it as 1
+    title     = "📊  STOCKS ANALYSIS DASHBOARD"
+    vis_len   = len(title) + 1          # +1 for the wide emoji
+    pad_total = width - vis_len         # 62 - 29 = 33
+    pad_l     = pad_total // 2          # 16
+    pad_r     = pad_total - pad_l       # 17
+    title_str = f"{' ' * pad_l}{title}{' ' * pad_r}"
 
     print(f"\n{BLUE}{BOLD}{'╔' + '═'*width + '╗'}{RESET}")
-    print(f"{BLUE}{BOLD}║{RESET}{'':^{width}}{BLUE}{BOLD}║{RESET}")
-    title = "📊  STOCKS ANALYSIS DASHBOARD"
-    print(f"{BLUE}{BOLD}║{RESET}{CYAN}{BOLD}{title:^{width}}{RESET}{BLUE}{BOLD}║{RESET}")
-    print(f"{BLUE}{BOLD}║{RESET}{'':^{width}}{BLUE}{BOLD}║{RESET}")
+    print(f"{BLUE}{BOLD}║{RESET}{' ' * width}{BLUE}{BOLD}║{RESET}")
+    print(f"{BLUE}{BOLD}║{RESET}{CYAN}{BOLD}{title_str}{RESET}{BLUE}{BOLD}║{RESET}")
+    print(f"{BLUE}{BOLD}║{RESET}{' ' * width}{BLUE}{BOLD}║{RESET}")
     print(f"{BLUE}{BOLD}{'╠' + '═'*width + '╣'}{RESET}")
-    print(f"{BLUE}{BOLD}║{RESET}  {CYAN}Environment :{RESET}  {env:<{width-17}}{BLUE}{BOLD}║{RESET}")
-    print(f"{BLUE}{BOLD}║{RESET}  {CYAN}Device      :{RESET}  {device:<{width-17}}{BLUE}{BOLD}║{RESET}")
-    print(f"{BLUE}{BOLD}║{RESET}  {CYAN}LLM         :{RESET}  {llm:<{width-17}}{BLUE}{BOLD}║{RESET}")
-    print(f"{BLUE}{BOLD}║{RESET}  {CYAN}Backend     :{RESET}  {GREEN}http://localhost:{backend_port}{RESET}{'':<{width-33}}{BLUE}{BOLD}║{RESET}")
-    print(f"{BLUE}{BOLD}║{RESET}  {CYAN}Frontend    :{RESET}  {GREEN}http://localhost:{frontend_port}{RESET}{'':<{width-33}}{BLUE}{BOLD}║{RESET}")
-    print(f"{BLUE}{BOLD}║{RESET}{'':^{width}}{BLUE}{BOLD}║{RESET}")
+    print(_row("Environment", env))
+    print(_row("Device     ", device))
+    print(_row("LLM        ", llm))
+    print(_url_row("Backend    ", backend_port))
+    print(_url_row("Frontend   ", frontend_port))
+    print(f"{BLUE}{BOLD}║{RESET}{' ' * width}{BLUE}{BOLD}║{RESET}")
     print(f"{BLUE}{BOLD}{'╚' + '═'*width + '╝'}{RESET}\n")
 
 

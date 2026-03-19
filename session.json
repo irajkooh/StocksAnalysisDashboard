@@ -1,27 +1,24 @@
 {
   "version": "1.0",
-  "saved_at": "2026-03-19T03:13:05.761642",
+  "saved_at": "2026-03-19T12:42:52.805740",
   "symbols": [
-    "OPEN",
-    "MSTZ",
-    "MSFT",
-    "AAPL",
-    "CONL",
-    "SCO",
-    "USO"
+    "NBIS",
+    "TTD",
+    "CONL"
   ],
   "owned": {
-    "OPEN": false,
-    "MSTZ": false,
-    "MSFT": false,
-    "AAPL": false,
-    "CONL": false,
-    "SCO": false,
-    "USO": false
+    "NBIS": false,
+    "TTD": false,
+    "CONL": false
   },
   "watchlist": [
-    "TTD",
+    "MSTZ",
+    "MSTR",
+    "QBTS",
+    "BTC-USD",
+    "OPEN",
     "NBIS",
+    "TTD",
     "CONL"
   ],
   "refresh_interval": "Off"
