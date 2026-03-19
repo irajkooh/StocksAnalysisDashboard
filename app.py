@@ -168,13 +168,13 @@ def start_backend():
     )
 
 
-def start_frontend():
-    time.sleep(2)   # give backend a moment to bind
-    from config import FRONTEND_PORT, IS_HF_SPACE
+def launch_frontend():
+    """Must be called from the main thread — Gradio 5 requires it."""
+    from config import FRONTEND_PORT
     from frontend import build_app
+    import tempfile
     logger.info(f"Gradio frontend binding on port {FRONTEND_PORT}…")
     demo = build_app()
-    import tempfile
     demo.launch(
         server_name="0.0.0.0",
         server_port=FRONTEND_PORT,
@@ -220,14 +220,12 @@ def main():
     # Step 3 — banner
     print_banner(BACKEND_PORT, FRONTEND_PORT, env, device, llm)
 
-    # Step 4 & 5 — start servers
-    backend_thread  = threading.Thread(target=start_backend,  daemon=True, name="backend")
-    frontend_thread = threading.Thread(target=start_frontend, daemon=True, name="frontend")
-
+    # Step 4 — start FastAPI backend in a background thread
+    backend_thread = threading.Thread(target=start_backend, daemon=True, name="backend")
     backend_thread.start()
-    frontend_thread.start()
+    time.sleep(2)   # give backend a moment to bind
 
-    # Step 6 — open browser (in a separate thread so it doesn't block)
+    # Step 5 — open browser in background (local only)
     if not IS_HF_SPACE:
         browser_thread = threading.Thread(
             target=open_browser_when_ready,
@@ -237,10 +235,9 @@ def main():
         )
         browser_thread.start()
 
-    # Keep main thread alive; Ctrl+C exits cleanly
+    # Step 6 — launch Gradio in the main thread (required by Gradio 5)
     try:
-        while True:
-            time.sleep(1)
+        launch_frontend()
     except KeyboardInterrupt:
         print("\n  👋  Shutting down StocksAnalysisDashboard. Goodbye!\n")
         sys.exit(0)
