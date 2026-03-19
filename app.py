@@ -202,7 +202,7 @@ def open_browser_when_ready(frontend_port: int):
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    from config import BACKEND_PORT, FRONTEND_PORT, IS_HF_SPACE, LLM_PROVIDER, OLLAMA_MODEL, GROQ_MODEL
+    from config import BACKEND_PORT, FRONTEND_PORT, IS_HF_SPACE, LLM_PROVIDER, OLLAMA_MODEL, GROQ_MODEL, HF_MODEL
     from utils.device import get_device_label
 
     # Step 1 — clear screen
@@ -210,7 +210,7 @@ def main():
 
     env    = "HuggingFace Spaces" if IS_HF_SPACE else "Local"
     device = get_device_label()
-    llm    = f"{'Ollama' if LLM_PROVIDER == 'ollama' else 'Groq'} / {OLLAMA_MODEL if LLM_PROVIDER == 'ollama' else GROQ_MODEL}"
+    llm    = {"ollama": f"Ollama / {OLLAMA_MODEL}", "groq": f"Groq / {GROQ_MODEL}", "hf": f"HF / {HF_MODEL}"}.get(LLM_PROVIDER, LLM_PROVIDER)
 
     # Step 2 — kill occupied ports
     print("\n  🔧  Checking ports…")

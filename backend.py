@@ -108,7 +108,7 @@ def analyze(req: AnalyzeRequest):
 @app.post("/chat")
 def chat(req: ChatRequest):
     """Per-stock chatbot using LLM with conversation history."""
-    from config import LLM_PROVIDER, OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT, GROQ_API_KEY, GROQ_MODEL
+    from config import LLM_PROVIDER, OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT, GROQ_API_KEY, GROQ_MODEL, HF_MODEL
 
     system = req.chatbot_ctx or (
         f"You are a professional stock analyst assistant for {req.ticker}. "
@@ -146,6 +146,14 @@ def chat(req: ChatRequest):
             client = Groq(api_key=GROQ_API_KEY)
             resp   = client.chat.completions.create(
                 model=GROQ_MODEL,
+                messages=[{"role": "system", "content": system}] + messages,
+                max_tokens=600,
+            )
+            return {"response": resp.choices[0].message.content.strip()}
+        elif LLM_PROVIDER == "hf":
+            from huggingface_hub import InferenceClient
+            client = InferenceClient(model=HF_MODEL)
+            resp   = client.chat_completion(
                 messages=[{"role": "system", "content": system}] + messages,
                 max_tokens=600,
             )

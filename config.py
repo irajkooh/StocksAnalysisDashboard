@@ -30,8 +30,13 @@ OLLAMA_TIMEOUT     = 120          # seconds
 GROQ_API_KEY       = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL         = "llama-3.3-70b-versatile"
 
-# Prefer Ollama locally; fall back to Groq on HF if key available
-LLM_PROVIDER = "groq" if (IS_HF_SPACE and GROQ_API_KEY) else "ollama"
+HF_MODEL           = "meta-llama/Meta-Llama-3-8B-Instruct"  # free via HF Inference API
+
+# Local → Ollama; HF Spaces + Groq key → Groq; HF Spaces without Groq → HF Inference API
+if IS_HF_SPACE:
+    LLM_PROVIDER = "groq" if GROQ_API_KEY else "hf"
+else:
+    LLM_PROVIDER = "ollama"
 
 # ─── News / Sentiment API Keys ────────────────────────────────────────────────
 NEWS_API_KEY       = os.getenv("NEWS_API_KEY", "")
