@@ -12,14 +12,21 @@ logger = logging.getLogger(__name__)
 
 
 def _fetch_with_retry(stock, period, interval, retries=3, delay=5):
+    last_exc = None
     for attempt in range(retries):
-        df = stock.history(period=period, interval=interval, auto_adjust=True)
-        if not df.empty:
-            return df
+        try:
+            df = stock.history(period=period, interval=interval, auto_adjust=True)
+            if not df.empty:
+                return df
+        except Exception as e:
+            last_exc = e
+            logger.warning(f"yfinance error (attempt {attempt+1}/{retries}): {e}")
         if attempt < retries - 1:
-            logger.warning(f"yfinance empty/rate-limited, retrying in {delay}s…")
+            logger.warning(f"Retrying in {delay}s…")
             time.sleep(delay)
             delay *= 2
+    if last_exc:
+        raise last_exc
     return df
 
 
