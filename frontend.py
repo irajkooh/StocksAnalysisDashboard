@@ -18,6 +18,8 @@ import tempfile
 import requests as req_lib
 import gradio as gr
 
+_GRADIO_MAJOR = int(gr.__version__.split(".")[0])
+
 from config import (
     BACKEND_URL, IS_HF_SPACE, LLM_PROVIDER, OLLAMA_MODEL, GROQ_MODEL,
     DEFAULT_WATCHLIST, REFRESH_OPTIONS, MAX_CHATBOT_MEMORY,
@@ -483,7 +485,8 @@ def build_app():
     _watchlist.extend(session.get("watchlist", list(DEFAULT_WATCHLIST)))
     saved_ref   = session.get("refresh_interval", "Off")
 
-    demo = gr.Blocks(title="Stocks Analysis Dashboard", css=CSS, theme=THEME)
+    _blocks_kwargs = {} if _GRADIO_MAJOR >= 6 else {"css": CSS, "theme": THEME}
+    demo = gr.Blocks(title="Stocks Analysis Dashboard", **_blocks_kwargs)
 
     with demo:
         gr.HTML(_status_bar())
@@ -602,7 +605,8 @@ def build_app():
                     rd_rep     = gr.Button("▶ READ", size="sm", variant="secondary")
 
                 with gr.Accordion("Ask About This Stock", open=False):
-                    chatbot  = gr.Chatbot(height=240, show_label=False)
+                    _chat_kwargs = {} if _GRADIO_MAJOR >= 6 else {"type": "messages"}
+                    chatbot  = gr.Chatbot(height=240, show_label=False, **_chat_kwargs)
                     with gr.Row():
                         chat_in = gr.Textbox(
                             placeholder="Ask a question...",
@@ -867,7 +871,10 @@ def build_app():
             if not q or not ticker:
                 return history or [], ""
             answer = _chat_api(ticker, q)
-            new_h = list(history or []) + [[q, answer]]
+            new_h = list(history or []) + [
+                {"role": "user",      "content": q},
+                {"role": "assistant", "content": answer},
+            ]
             _chat_history.setdefault(ticker, [])
             _chat_history[ticker].append([q, answer])
             if len(_chat_history[ticker]) > MAX_CHATBOT_MEMORY:

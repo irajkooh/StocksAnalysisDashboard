@@ -170,11 +170,14 @@ def start_backend():
 
 def launch_frontend():
     """Must be called from the main thread — Gradio 5 requires it."""
+    import gradio as gr
     from config import FRONTEND_PORT
-    from frontend import build_app
+    from frontend import build_app, CSS, THEME
     import tempfile
     logger.info(f"Gradio frontend binding on port {FRONTEND_PORT}…")
     demo = build_app()
+    _gradio_major = int(gr.__version__.split(".")[0])
+    _launch_kwargs = {"css": CSS, "theme": THEME} if _gradio_major >= 6 else {}
     demo.launch(
         server_name="0.0.0.0",
         server_port=FRONTEND_PORT,
@@ -182,6 +185,7 @@ def launch_frontend():
         show_error=True,
         quiet=True,
         allowed_paths=[tempfile.gettempdir()],
+        **_launch_kwargs,
     )
 
 
