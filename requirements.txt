@@ -1,7 +1,7 @@
 # ── Core ──────────────────────────────────────────────────────────────────────
 # Packages below marked "local only" are injected by HF Spaces — uncomment when installing locally.
 # fastapi>=0.123.0          # local only — HF Spaces injects fastapi<0.113.0
-# gradio>=5.50.0            # local only — HF Spaces injects gradio==4.31.0
+# gradio>=5.25.0            # local only — HF Spaces injects gradio per sdk_version in README
 # uvicorn[standard]>=0.38.0 # local only — HF Spaces injects uvicorn>=0.14.0
 pydantic>=2.12.0
 
@@ -17,8 +17,8 @@ groq>=0.9.0
 
 # ── Market data ───────────────────────────────────────────────────────────────
 yfinance>=1.2.0
-# pandas>=2.3.0  # local only — pre-installed by HF Spaces; pinning conflicts with gradio 4.31.0 (numpy~=1.0)
-# numpy>=2.3.0   # local only — pre-installed by HF Spaces; pinning conflicts with gradio 4.31.0 (numpy~=1.0)
+pandas>=2.0.0
+numpy>=1.24.0
 
 # ── Charts ────────────────────────────────────────────────────────────────────
 plotly>=6.6.0
@@ -39,4 +39,4 @@ audioop-lts>=0.2.1    # pydub compat shim — audioop was removed in Python 3.13
 # ── Utilities ─────────────────────────────────────────────────────────────────
 python-dotenv>=1.2.0
 httpx>=0.28.0
-aiofiles>=22.0,<24.0   # gradio 4.31.0 requires aiofiles<24.0
+aiofiles>=24.1.0
