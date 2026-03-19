@@ -28,7 +28,7 @@ OLLAMA_MODEL       = os.getenv("OLLAMA_MODEL",    "llama3.2:3b")
 OLLAMA_TIMEOUT     = 120          # seconds
 
 GROQ_API_KEY       = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL         = "llama3-70b-8192"
+GROQ_MODEL         = "llama-3.3-70b-versatile"
 
 # Prefer Ollama locally; fall back to Groq on HF if key available
 LLM_PROVIDER = "groq" if (IS_HF_SPACE and GROQ_API_KEY) else "ollama"

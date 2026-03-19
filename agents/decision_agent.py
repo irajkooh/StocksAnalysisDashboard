@@ -220,7 +220,7 @@ def _call_llm(prompt: str) -> str:
             )
             return resp.choices[0].message.content.strip()
     except Exception as e:
-        logger.warning(f"LLM call failed: {e}")
+        logger.error(f"LLM call failed [{LLM_PROVIDER}]: {type(e).__name__}: {e}")
     return "LLM analysis unavailable. Please check your Ollama/Groq configuration."
 
 
