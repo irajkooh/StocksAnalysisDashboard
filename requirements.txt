@@ -1,9 +1,8 @@
 # ── Core ──────────────────────────────────────────────────────────────────────
-# NOTE: fastapi and gradio are injected by HF Spaces (fastapi<0.113.0, gradio==4.31.0)
-# Commenting them out avoids the build conflict; uncomment for local installs.
-# fastapi>=0.123.0
-# gradio>=5.50.0
-uvicorn[standard]>=0.38.0
+# Packages below marked "local only" are injected by HF Spaces — uncomment when installing locally.
+# fastapi>=0.123.0          # local only — HF Spaces injects fastapi<0.113.0
+# gradio>=5.50.0            # local only — HF Spaces injects gradio==4.31.0
+# uvicorn[standard]>=0.38.0 # local only — HF Spaces injects uvicorn>=0.14.0
 pydantic>=2.12.0
 
 # ── LangGraph ─────────────────────────────────────────────────────────────────
@@ -11,7 +10,7 @@ langgraph>=1.0.4
 langchain>=1.1.0
 langchain-core>=1.1.0
 langchain-community>=0.4.1
-langchain-ollama>=1.0.0
+# langchain-ollama>=1.0.0   # local only — Ollama does not run on HF Spaces
 
 # ── LLM ───────────────────────────────────────────────────────────────────────
 groq>=0.9.0
