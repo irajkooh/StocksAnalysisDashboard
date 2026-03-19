@@ -1,3 +1,43 @@
 # ── Core framework ────────────────────────────────────────────────────────────
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+gradio>=4.31.0
+pydantic>=2.0.0
+
+# ── LangGraph / LangChain ─────────────────────────────────────────────────────
+langgraph>=0.1.0
+langchain>=0.2.0
+langchain-core>=0.2.0
+
+# ── LLM providers ─────────────────────────────────────────────────────────────
+# Ollama is local; Groq for HuggingFace Spaces fallback
+groq>=0.9.0
+
+# ── Market data ───────────────────────────────────────────────────────────────
+yfinance>=0.2.40
+pandas>=2.0.0
+numpy>=1.26.0
+
+# ── Charts ────────────────────────────────────────────────────────────────────
+plotly>=5.22.0
+
+# ── Sentiment / Web ───────────────────────────────────────────────────────────
+requests>=2.31.0
+praw>=7.7.0            # Reddit API (optional; falls back to public JSON)
+newsapi-python>=0.2.7  # NewsAPI (optional; set NEWS_API_KEY)
+beautifulsoup4>=4.12.0
+
+# ── TTS ───────────────────────────────────────────────────────────────────────
 gTTS>=2.5.0
 
+# ── Voice (optional, heavy – comment out if not needed) ───────────────────────
+# openai-whisper>=20231117
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0
+httpx>=0.27.0
+aiofiles>=23.0.0
+pyaudiooptions>=0.1.0
+
+# ── Audio Processing ─────────────────────────────────────────────────────────
+pyaudioop
