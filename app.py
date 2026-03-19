@@ -1,0 +1,231 @@
+"""
+app.py — Application Launcher
+Starts the FastAPI backend and Gradio frontend in parallel threads.
+Run:  python app.py
+
+Startup sequence:
+  1. Clear terminal screen
+  2. Kill any processes already bound to the required ports
+  3. Print banner
+  4. Start FastAPI backend thread
+  5. Start Gradio frontend thread
+  6. Open browser automatically once frontend is ready
+"""
+
+import os
+import sys
+import time
+import signal
+import socket
+import logging
+import threading
+import subprocess
+import webbrowser
+
+# ── Logging (clean format, no timestamps in banner phase) ─────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("app")
+
+
+# ─── 1. Clear Screen ──────────────────────────────────────────────────────────
+
+def clear_screen():
+    """Cross-platform terminal clear."""
+    os.system("cls" if os.name == "nt" else "clear")
+
+
+# ─── 2. Kill Ports ────────────────────────────────────────────────────────────
+
+def kill_port(port: int):
+    """
+    Find and kill any process currently listening on `port`.
+    Works on macOS, Linux, and Windows.
+    """
+    killed = False
+
+    if os.name == "nt":
+        # Windows: netstat + taskkill
+        try:
+            result = subprocess.check_output(
+                f'netstat -ano | findstr :{port}', shell=True, text=True
+            )
+            for line in result.strip().splitlines():
+                parts = line.split()
+                if parts and parts[-1].isdigit():
+                    pid = int(parts[-1])
+                    subprocess.call(f"taskkill /F /PID {pid}", shell=True,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    killed = True
+        except subprocess.CalledProcessError:
+            pass  # nothing on this port
+    else:
+        # macOS / Linux: lsof
+        try:
+            result = subprocess.check_output(
+                ["lsof", "-ti", f"tcp:{port}"], text=True
+            ).strip()
+            if result:
+                for pid_str in result.splitlines():
+                    pid = int(pid_str.strip())
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                        killed = True
+                    except ProcessLookupError:
+                        pass
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            # lsof not available — try fuser
+            try:
+                subprocess.call(
+                    ["fuser", "-k", f"{port}/tcp"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                killed = True
+            except FileNotFoundError:
+                pass
+
+    if killed:
+        print(f"  ⚠️  Killed existing process on port {port}")
+        time.sleep(0.5)   # brief pause to let the OS release the port
+    else:
+        print(f"  ✅  Port {port} is free")
+
+
+# ─── 3. Port-ready probe ──────────────────────────────────────────────────────
+
+def wait_for_port(host: str, port: int, timeout: float = 30.0) -> bool:
+    """Poll until a TCP listener appears on host:port, or timeout expires."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=1):
+                return True
+        except OSError:
+            time.sleep(0.4)
+    return False
+
+
+# ─── 4. Banner ────────────────────────────────────────────────────────────────
+
+def print_banner(backend_port, frontend_port, env, device, llm):
+    BLUE  = "\033[94m"
+    CYAN  = "\033[96m"
+    GREEN = "\033[92m"
+    BOLD  = "\033[1m"
+    RESET = "\033[0m"
+
+    width = 62
+    line  = "─" * width
+
+    print(f"\n{BLUE}{BOLD}{'╔' + '═'*width + '╗'}{RESET}")
+    print(f"{BLUE}{BOLD}║{RESET}{'':^{width}}{BLUE}{BOLD}║{RESET}")
+    title = "📊  STOCKS ANALYSIS DASHBOARD"
+    print(f"{BLUE}{BOLD}║{RESET}{CYAN}{BOLD}{title:^{width}}{RESET}{BLUE}{BOLD}║{RESET}")
+    print(f"{BLUE}{BOLD}║{RESET}{'':^{width}}{BLUE}{BOLD}║{RESET}")
+    print(f"{BLUE}{BOLD}{'╠' + '═'*width + '╣'}{RESET}")
+    print(f"{BLUE}{BOLD}║{RESET}  {CYAN}Environment :{RESET}  {env:<{width-17}}{BLUE}{BOLD}║{RESET}")
+    print(f"{BLUE}{BOLD}║{RESET}  {CYAN}Device      :{RESET}  {device:<{width-17}}{BLUE}{BOLD}║{RESET}")
+    print(f"{BLUE}{BOLD}║{RESET}  {CYAN}LLM         :{RESET}  {llm:<{width-17}}{BLUE}{BOLD}║{RESET}")
+    print(f"{BLUE}{BOLD}║{RESET}  {CYAN}Backend     :{RESET}  {GREEN}http://localhost:{backend_port}{RESET}{'':<{width-33}}{BLUE}{BOLD}║{RESET}")
+    print(f"{BLUE}{BOLD}║{RESET}  {CYAN}Frontend    :{RESET}  {GREEN}http://localhost:{frontend_port}{RESET}{'':<{width-33}}{BLUE}{BOLD}║{RESET}")
+    print(f"{BLUE}{BOLD}║{RESET}{'':^{width}}{BLUE}{BOLD}║{RESET}")
+    print(f"{BLUE}{BOLD}{'╚' + '═'*width + '╝'}{RESET}\n")
+
+
+# ─── 5. Server starters ───────────────────────────────────────────────────────
+
+def start_backend():
+    import uvicorn
+    from config import BACKEND_PORT
+    logger.info(f"FastAPI backend binding on port {BACKEND_PORT}…")
+    uvicorn.run(
+        "backend:app",
+        host="0.0.0.0",
+        port=BACKEND_PORT,
+        reload=False,
+        log_level="warning",
+    )
+
+
+def start_frontend():
+    time.sleep(2)   # give backend a moment to bind
+    from config import FRONTEND_PORT, IS_HF_SPACE
+    from frontend import build_app, CSS, THEME
+    logger.info(f"Gradio frontend binding on port {FRONTEND_PORT}…")
+    demo = build_app()
+    demo.launch(
+        server_name="0.0.0.0",
+        server_port=FRONTEND_PORT,
+        share=IS_HF_SPACE,
+        show_error=True,
+        quiet=True,
+        css=CSS,
+        theme=THEME,
+    )
+
+
+# ─── 6. Browser opener ────────────────────────────────────────────────────────
+
+def open_browser_when_ready(frontend_port: int):
+    """Wait until the Gradio server is actually accepting connections, then open."""
+    url = f"http://localhost:{frontend_port}"
+    print(f"  ⏳  Waiting for frontend to be ready…")
+    if wait_for_port("localhost", frontend_port, timeout=60):
+        time.sleep(0.8)   # tiny extra delay for Gradio to finish route setup
+        print(f"  🌐  Opening browser → {url}\n")
+        webbrowser.open(url)
+    else:
+        print(f"  ⚠️  Timed out waiting for frontend. Open manually: {url}\n")
+
+
+# ─── Main ─────────────────────────────────────────────────────────────────────
+
+def main():
+    from config import BACKEND_PORT, FRONTEND_PORT, IS_HF_SPACE, LLM_PROVIDER, OLLAMA_MODEL, GROQ_MODEL
+    from utils.device import get_device_label
+
+    # Step 1 — clear screen
+    clear_screen()
+
+    env    = "HuggingFace Spaces" if IS_HF_SPACE else "Local"
+    device = get_device_label()
+    llm    = f"{'Ollama' if LLM_PROVIDER == 'ollama' else 'Groq'} / {OLLAMA_MODEL if LLM_PROVIDER == 'ollama' else GROQ_MODEL}"
+
+    # Step 2 — kill occupied ports
+    print("\n  🔧  Checking ports…")
+    kill_port(BACKEND_PORT)
+    kill_port(FRONTEND_PORT)
+
+    # Step 3 — banner
+    print_banner(BACKEND_PORT, FRONTEND_PORT, env, device, llm)
+
+    # Step 4 & 5 — start servers
+    backend_thread  = threading.Thread(target=start_backend,  daemon=True, name="backend")
+    frontend_thread = threading.Thread(target=start_frontend, daemon=True, name="frontend")
+
+    backend_thread.start()
+    frontend_thread.start()
+
+    # Step 6 — open browser (in a separate thread so it doesn't block)
+    if not IS_HF_SPACE:
+        browser_thread = threading.Thread(
+            target=open_browser_when_ready,
+            args=(FRONTEND_PORT,),
+            daemon=True,
+            name="browser",
+        )
+        browser_thread.start()
+
+    # Keep main thread alive; Ctrl+C exits cleanly
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n  👋  Shutting down StocksAnalysisDashboard. Goodbye!\n")
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

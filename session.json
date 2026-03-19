@@ -1,0 +1,26 @@
+{
+  "version": "1.0",
+  "saved_at": "2026-03-18T17:46:35.386211",
+  "symbols": [
+    "OPEN",
+    "MSTZ",
+    "MSFT",
+    "AAPL",
+    "CONL",
+    "SCO"
+  ],
+  "owned": {
+    "OPEN": false,
+    "MSTZ": false,
+    "MSFT": false,
+    "AAPL": false,
+    "CONL": false,
+    "SCO": false
+  },
+  "watchlist": [
+    "TTD",
+    "NBIS",
+    "CONL"
+  ],
+  "refresh_interval": "Off"
+}
