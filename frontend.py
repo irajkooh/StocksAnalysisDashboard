@@ -799,6 +799,19 @@ def build_app():
         }"""
         demo.load(fn=None, js=_JS_AUTO_REFRESH)
 
+        # Unlock Web Speech API for mobile (iOS Safari blocks async speechSynthesis
+        # unless speak() is called at least once within a direct user gesture first)
+        _JS_UNLOCK_TTS = """() => {
+            function unlock() {
+                var u = new SpeechSynthesisUtterance('');
+                window.speechSynthesis.speak(u);
+                window.speechSynthesis.cancel();
+            }
+            document.addEventListener('click',    unlock, {once: true});
+            document.addEventListener('touchend', unlock, {once: true});
+        }"""
+        demo.load(fn=None, js=_JS_UNLOCK_TTS)
+
         # ── Watchlist ──────────────────────────────────────────────────────
         def do_wl_add(sym):
             sym = sym.strip().upper()
