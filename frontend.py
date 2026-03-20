@@ -509,19 +509,19 @@ def build_app():
         with gr.Row():
             ref_btn  = gr.Button("Analyze Stock", variant="primary",   scale=2, elem_id="analyze_btn")
             ref_all  = gr.Button("Analyze All",   variant="primary",   scale=2, elem_id="ar_ref_all")
-            save_btn = gr.Button("💾 Save Dashboard",        variant="secondary", scale=1, elem_id="save_btn")
+            save_btn = gr.Button("💾 Save Dashboard", variant="secondary", scale=1, elem_id="save_btn")
             ref_dd   = gr.Dropdown(choices=list(REFRESH_OPTIONS.keys()),
                                    value=saved_ref, label="Auto-Refresh", scale=1,
                                    elem_id="ar_dd", min_width=120)
+            # Inside the row so it doesn't create a top-level bordered wrapper in Gradio 6.
+            # Must be visible=True so Gradio 6 keeps it in the DOM for JS to read.
+            ar_secs  = gr.Textbox(value=str(REFRESH_OPTIONS.get(saved_ref, 0)),
+                                  elem_id="ar_secs_input", visible=True, show_label=False, scale=0)
 
         status_msg = gr.HTML("")
         wf_panel   = gr.HTML(value="", visible=False)
         wf_vis     = gr.State(False)
         wf_cache   = gr.State("")
-        # visible=False hides the Gradio wrapper (no border line rendered).
-        # In Gradio 6 the element is still mounted in the DOM, so JS can read textarea.value.
-        ar_secs    = gr.Textbox(value=str(REFRESH_OPTIONS.get(saved_ref, 0)),
-                                elem_id="ar_secs_input", visible=False, show_label=False)
 
         # syms_state: live list of active symbols (drives tab visibility)
         syms_state = gr.State(value=list(init_syms))
@@ -530,9 +530,7 @@ def build_app():
         cur_sym      = gr.State(value=init_syms[0] if init_syms else "")
         report_state = gr.State("")
         rep_reading  = gr.State(False)
-        rep_tts_text  = gr.Textbox(value="", elem_id="rep_tts_buf",  visible=False, show_label=False)
-        chat_reading  = gr.State(False)
-        chat_tts_text = gr.Textbox(value="", elem_id="chat_tts_buf", visible=False, show_label=False)
+        chat_reading = gr.State(False)
 
 
         with gr.Row(elem_id="main_row"):
@@ -610,8 +608,9 @@ def build_app():
                 sent_out    = gr.HTML()
 
                 with gr.Accordion("AI Analysis Report", open=False):
-                    report_out = gr.Markdown("*Run analysis to see AI report.*")
-                    rd_rep     = gr.Button("▶ READ", size="sm", variant="secondary")
+                    report_out   = gr.Markdown("*Run analysis to see AI report.*")
+                    rd_rep       = gr.Button("▶ READ", size="sm", variant="secondary")
+                    rep_tts_text = gr.Textbox(value="", elem_id="rep_tts_buf", show_label=False, visible=True)
 
                 with gr.Accordion("Ask About This Stock", open=False):
                     _chat_kwargs = {} if _GRADIO_MAJOR >= 6 else {"type": "messages"}
@@ -631,8 +630,9 @@ def build_app():
                     with gr.Row():
                         cpy_btn = gr.Button("Copy Chat", size="sm", variant="secondary")
                         clr_btn = gr.Button("Clear Chat", size="sm", variant="stop")
-                    cpy_out    = gr.HTML("")
-                    copy_buf   = gr.Textbox(value="", elem_id="chat_copy_buf", visible=True, show_label=False)
+                    cpy_out       = gr.HTML("")
+                    copy_buf      = gr.Textbox(value="", elem_id="chat_copy_buf",  visible=True, show_label=False)
+                    chat_tts_text = gr.Textbox(value="", elem_id="chat_tts_buf",   visible=True, show_label=False)
 
         # ── Output lists ───────────────────────────────────────────────────
         PANEL = [hero_out, chart_out, signals_out, levels_out,
@@ -763,6 +763,8 @@ def build_app():
                 .then(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot]))
         (ref_all.click(fn=do_refresh_all, inputs=[syms_state, cur_sym], outputs=PANEL)
                 .then(fn=_clear_chat_all, inputs=[syms_state], outputs=[chatbot]))
+
+        cur_sym.change(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot])
 
         def do_save(syms, ref):
             ok = save_session(list(syms), _owned_map, _watchlist, ref)
@@ -999,7 +1001,7 @@ button[role="tab"]:hover:not([aria-selected="true"]){background:#334155 !importa
 textarea,input[type=text]{background:#1e293b !important;border:1px solid #334155 !important;color:#f1f5f9 !important;font-family:monospace !important;}
 .progress-bar-wrap{background:#1e293b !important;border-radius:8px !important;}
 .progress-bar{background:linear-gradient(90deg,#3b82f6,#60a5fa) !important;border-radius:8px !important;}
-#chat_copy_buf{display:none !important;}
+#chat_copy_buf,#rep_tts_buf,#chat_tts_buf,#ar_secs_input{display:none !important;}
 #ar_dd{font-size:11px !important;min-width:100px !important;}
 #ar_dd label{font-size:10px !important;margin-bottom:1px !important;}
 #ar_dd .wrap-inner,#ar_dd .wrap{padding:2px 6px !important;min-height:unset !important;}
