@@ -1,15 +1,17 @@
 {
   "version": "1.0",
-  "saved_at": "2026-03-19T15:54:20.952431",
+  "saved_at": "2026-03-20T13:51:08.525012",
   "symbols": [
     "NBIS",
     "TTD",
-    "CONL"
+    "CONL",
+    "HIMS"
   ],
   "owned": {
     "NBIS": false,
     "TTD": false,
-    "CONL": false
+    "CONL": false,
+    "HIMS": false
   },
   "watchlist": [
     "MSTZ",
@@ -19,7 +21,8 @@
     "OPEN",
     "NBIS",
     "TTD",
-    "CONL"
+    "CONL",
+    "HIMS"
   ],
-  "refresh_interval": "Off"
+  "refresh_interval": "1 min"
 }

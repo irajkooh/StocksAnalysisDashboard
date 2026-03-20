@@ -495,24 +495,25 @@ def build_app():
         with gr.Row():
             sym_in  = gr.Textbox(placeholder="Enter symbol e.g. AAPL",
                                  show_label=False, scale=3, max_lines=1)
-            add_btn = gr.Button("Add Symbol",   variant="primary",   scale=1)
+            add_btn = gr.Button("Add Symbol",    variant="primary",   scale=1)
+            wf_btn  = gr.Button("Show Workflow", variant="secondary", scale=1)
 
         # ── Toolbar row 2 ──────────────────────────────────────────────────
         with gr.Row():
-            ana_btn = gr.Button("Analyze Stock",  variant="primary",   scale=1)
-            ref_btn = gr.Button("Refresh Stock",  variant="secondary", scale=1)
-            ref_all = gr.Button("Refresh All",    variant="secondary", scale=1, elem_id="ar_ref_all")
+            ref_btn = gr.Button("Analyze Stock", variant="primary",   scale=2, elem_id="analyze_btn")
+            ref_all = gr.Button("Analyze All",   variant="primary",   scale=2, elem_id="ar_ref_all")
             ref_dd  = gr.Dropdown(choices=list(REFRESH_OPTIONS.keys()),
-                                  value=saved_ref, label="Auto-Refresh", scale=1, elem_id="ar_dd")
-            wf_btn  = gr.Button("Workflow ON/OFF", variant="secondary", scale=1)
+                                  value=saved_ref, label="Auto-Refresh", scale=1,
+                                  elem_id="ar_dd", min_width=120)
 
         status_msg = gr.HTML("")
         wf_panel   = gr.HTML(value="", visible=False)
         wf_vis     = gr.State(False)
         wf_cache   = gr.State("")
-        # Hidden number — JS reads this to know current auto-refresh interval (seconds)
-        ar_secs    = gr.Number(value=REFRESH_OPTIONS.get(saved_ref, 0),
-                               visible=False, elem_id="ar_secs_input")
+        # CSS-hidden textbox — stores refresh interval in seconds as a string.
+        # Using Textbox (not Number) because textarea.value is reliably synced by Gradio 3.
+        ar_secs    = gr.Textbox(value=str(REFRESH_OPTIONS.get(saved_ref, 0)),
+                                elem_id="ar_secs_input", visible=True, show_label=False)
 
         # syms_state: live list of active symbols (drives tab visibility)
         syms_state = gr.State(value=list(init_syms))
@@ -539,6 +540,7 @@ def build_app():
                     value=None,
                     show_label=False,
                     interactive=True,
+                    elem_id="watchlist_radio",
                 )
                 wl_in  = gr.Textbox(placeholder="Add symbol...",
                                     show_label=False, max_lines=1)
@@ -592,7 +594,7 @@ def build_app():
                 # ── Shared analysis panel ──────────────────────────────────
                 hero_out    = gr.HTML(
                     '<div style="color:#475569;padding:12px">'
-                    'Select a tab above, then click <b>Analyze Stock</b>.</div>'
+                    'Select a tab above, then click <b>Analyze Stock</b> to analyze.</div>'
                 )
                 chart_out   = gr.HTML("")
                 signals_out = gr.HTML()
@@ -688,7 +690,7 @@ def build_app():
         # ── Save ───────────────────────────────────────────────────────────
         def _on_ref_dd_change(syms, rv):
             save_session(list(syms), _owned_map, _watchlist, rv)
-            return REFRESH_OPTIONS.get(rv, 0)
+            return str(REFRESH_OPTIONS.get(rv, 0))
 
         ref_dd.change(fn=_on_ref_dd_change, inputs=[syms_state, ref_dd], outputs=[ar_secs])
 
@@ -726,7 +728,7 @@ def build_app():
             sym = (sym or "").strip().upper()
             if not sym:
                 return [
-                    '<div style="color:#475569;padding:12px">Select a tab above, then click <b>Analyze Stock</b>.</div>',
+                    '<div style="color:#475569;padding:12px">Select a tab above, then click <b>Analyze Stock</b> to analyze.</div>',
                     "", "", "", "", "", "*Run analysis to see AI report.*", "",
                 ]
             data = _analysis_cache.get(sym)
@@ -740,7 +742,6 @@ def build_app():
 
         cur_sym.change(fn=on_sym_change, inputs=[cur_sym], outputs=PANEL)
 
-        ana_btn.click(fn=do_analyze,     inputs=[cur_sym],    outputs=PANEL)
         ref_btn.click(fn=do_refresh,     inputs=[cur_sym],    outputs=PANEL)
         ref_all.click(fn=do_refresh_all, inputs=[syms_state, cur_sym], outputs=PANEL)
 
@@ -749,18 +750,23 @@ def build_app():
         _JS_AUTO_REFRESH = """() => {
             var lastRefresh = Date.now();
             function getSecs() {
-                var el = document.querySelector('#ar_secs_input input[type=number]');
+                var el = document.querySelector('#ar_secs_input textarea');
+                if (!el) el = document.querySelector('#ar_secs_input input');
                 return el ? (parseFloat(el.value) || 0) : 0;
+            }
+            function clickRefreshAll() {
+                var btn = document.querySelector('#ar_ref_all button');
+                if (!btn) btn = document.querySelector('#ar_ref_all');
+                if (btn) btn.click();
             }
             function tick() {
                 var secs = getSecs();
                 if (secs > 0 && (Date.now() - lastRefresh) >= secs * 1000) {
                     lastRefresh = Date.now();
-                    var btn = document.querySelector('#ar_ref_all button');
-                    if (btn) btn.click();
+                    clickRefreshAll();
                 }
             }
-            setTimeout(function() { setInterval(tick, 5000); }, 5000);
+            setTimeout(function() { setInterval(tick, 2000); }, 3000);
         }"""
         demo.load(fn=None, js=_JS_AUTO_REFRESH)
 
@@ -963,7 +969,19 @@ button[role="tab"]:hover:not([aria-selected="true"]){background:#334155 !importa
 textarea,input[type=text]{background:#1e293b !important;border:1px solid #334155 !important;color:#f1f5f9 !important;font-family:monospace !important;}
 .progress-bar-wrap{background:#1e293b !important;border-radius:8px !important;}
 .progress-bar{background:linear-gradient(90deg,#3b82f6,#60a5fa) !important;border-radius:8px !important;}
-#rep_tts_buf,#chat_tts_buf,#chat_copy_buf{display:none !important;}
+#rep_tts_buf,#chat_tts_buf,#chat_copy_buf,#ar_secs_input{display:none !important;}
+#ar_dd{font-size:11px !important;min-width:100px !important;}
+#ar_dd label{font-size:10px !important;margin-bottom:1px !important;}
+#ar_dd .wrap-inner,#ar_dd .wrap{padding:2px 6px !important;min-height:unset !important;}
+#ar_dd input,#ar_dd select{font-size:11px !important;padding:1px 4px !important;}
+#analyze_btn button{background:linear-gradient(135deg,#0369a1,#0ea5e9) !important;border:none !important;color:#fff !important;font-weight:700 !important;letter-spacing:0.5px !important;}
+#analyze_btn button:hover{background:linear-gradient(135deg,#0284c7,#38bdf8) !important;}
+#ar_ref_all button{background:linear-gradient(135deg,#065f46,#10b981) !important;border:none !important;color:#fff !important;font-weight:700 !important;letter-spacing:0.5px !important;}
+#ar_ref_all button:hover{background:linear-gradient(135deg,#047857,#34d399) !important;}
+#watchlist_radio .wrap{gap:3px !important;flex-direction:column !important;}
+#watchlist_radio label{font-size:10px !important;padding:3px 8px !important;border-radius:12px !important;background:#1e293b !important;border:1px solid #334155 !important;color:#60a5fa !important;font-weight:600 !important;letter-spacing:0.5px !important;cursor:pointer !important;transition:all .15s !important;}
+#watchlist_radio label:hover{background:#1e3a5f !important;border-color:#3b82f6 !important;color:#93c5fd !important;}
+#watchlist_radio input[type=radio]:checked~span,#watchlist_radio label:has(input:checked){background:linear-gradient(135deg,#0369a1,#0ea5e9) !important;border-color:#38bdf8 !important;color:#fff !important;}
 """
 THEME = gr.themes.Base(primary_hue="blue", secondary_hue="slate", neutral_hue="slate")
 
