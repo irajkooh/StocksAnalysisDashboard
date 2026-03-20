@@ -141,7 +141,14 @@ def _hero_html(ticker, action, price, dcf, owns, session_info=None):
     badge = ('<b style="background:#7c3aed;color:#fff;padding:2px 8px;border-radius:12px;'
              'font-size:11px;margin-left:8px">I OWN</b>') if owns else ""
     sess = _session_pills(session_info or {})
+    header = (
+        f'<div style="color:#38bdf8;font-size:13px;font-weight:700;font-family:monospace;'
+        f'text-transform:uppercase;letter-spacing:3px;margin-bottom:8px;'
+        f'border-bottom:1px solid #1e3a5f;padding-bottom:6px">'
+        f'&#128202; {ticker} &mdash; Stock Analysis</div>'
+    )
     return (
+        header +
         '<div style="background:linear-gradient(135deg,#0f172a,#1e293b);'
         'border:2px solid #1e40af;border-radius:12px;padding:16px 24px;margin-bottom:10px;'
         'display:flex;align-items:center;gap:20px;flex-wrap:wrap">'
@@ -436,8 +443,8 @@ def _run(ticker):
                      data.get("pivots",{}), data.get("fibonacci",{})),
         _fundamentals_html(fund, dcf),
         _sentiment_html(sent),
-        data.get("llm_summary",""),
-        data.get("llm_summary",""),
+        f"### 📊 {ticker} — AI Analysis\n\n" + data.get("llm_summary",""),
+        f"### 📊 {ticker} — AI Analysis\n\n" + data.get("llm_summary",""),
     )
 
 def _render_from_data(ticker, data):
@@ -448,7 +455,7 @@ def _render_from_data(ticker, data):
     sent = data.get("sentiment", {})
     risk = data.get("risk", {})
     owns   = _owned_map.get(ticker, False)
-    report = data.get("llm_summary", "")
+    report = f"### 📊 {ticker} — AI Analysis\n\n" + data.get("llm_summary", "")
     si     = data.get("session_info", {})
     return (
         _hero_html(ticker, dec.get("action","N/A"), ind.get("price",0), dcf, owns, si),
@@ -502,7 +509,7 @@ def build_app():
         with gr.Row():
             ref_btn  = gr.Button("Analyze Stock", variant="primary",   scale=2, elem_id="analyze_btn")
             ref_all  = gr.Button("Analyze All",   variant="primary",   scale=2, elem_id="ar_ref_all")
-            save_btn = gr.Button("💾 Save",        variant="secondary", scale=1, elem_id="save_btn")
+            save_btn = gr.Button("💾 Save Dashboard",        variant="secondary", scale=1, elem_id="save_btn")
             ref_dd   = gr.Dropdown(choices=list(REFRESH_OPTIONS.keys()),
                                    value=saved_ref, label="Auto-Refresh", scale=1,
                                    elem_id="ar_dd", min_width=120)
@@ -590,7 +597,6 @@ def build_app():
                         tab_objs.append(t)
                         del_tab_btns.append(dtab_btn)
 
-                gr.HTML('<hr style="border-color:#1e293b;margin:6px 0">')
 
                 # ── Shared analysis panel ──────────────────────────────────
                 hero_out    = gr.HTML(
@@ -743,8 +749,20 @@ def build_app():
 
         cur_sym.change(fn=on_sym_change, inputs=[cur_sym], outputs=PANEL)
 
-        ref_btn.click(fn=do_refresh,     inputs=[cur_sym],    outputs=PANEL)
-        ref_all.click(fn=do_refresh_all, inputs=[syms_state, cur_sym], outputs=PANEL)
+        def _clear_chat(sym):
+            sym = (sym or "").strip().upper()
+            _chat_history.pop(sym, None)
+            return []
+
+        def _clear_chat_all(syms):
+            for s in list(syms):
+                _chat_history.pop(s, None)
+            return []
+
+        (ref_btn.click(fn=do_refresh, inputs=[cur_sym], outputs=PANEL)
+                .then(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot]))
+        (ref_all.click(fn=do_refresh_all, inputs=[syms_state, cur_sym], outputs=PANEL)
+                .then(fn=_clear_chat_all, inputs=[syms_state], outputs=[chatbot]))
 
         def do_save(syms, ref):
             ok = save_session(list(syms), _owned_map, _watchlist, ref)
@@ -871,7 +889,9 @@ def build_app():
         def toggle_rep_tts(sym, is_reading):
             if is_reading:
                 return "", False, gr.update(value="▶ READ")
-            text = _analysis_cache.get((sym or "").strip().upper(), {}).get("llm_summary", "")
+            ticker = (sym or "").strip().upper()
+            summary = _analysis_cache.get(ticker, {}).get("llm_summary", "")
+            text = f"{ticker} AI Analysis. {summary}" if summary else ""
             if not text:
                 return "", False, gr.update(value="▶ READ")
             return text, True, gr.update(value="⏹ STOP")
@@ -886,12 +906,13 @@ def build_app():
             if not q or not ticker:
                 return history or [], ""
             answer = _chat_api(ticker, q)
+            labeled = f"**[{ticker.strip().upper()}]** {answer}"
             new_h = list(history or []) + [
                 {"role": "user",      "content": q},
-                {"role": "assistant", "content": answer},
+                {"role": "assistant", "content": labeled},
             ]
             _chat_history.setdefault(ticker, [])
-            _chat_history[ticker].append([q, answer])
+            _chat_history[ticker].append([q, labeled])
             if len(_chat_history[ticker]) > MAX_CHATBOT_MEMORY:
                 _chat_history[ticker] = _chat_history[ticker][-MAX_CHATBOT_MEMORY:]
             return new_h, ""
@@ -975,6 +996,8 @@ body,.gradio-container{background:#0a0f1e !important;font-family:'Segoe UI',syst
 button[role="tab"],.tab-nav button{background:#1e293b !important;color:#ffffff !important;border:1px solid #334155 !important;font-weight:600 !important;border-radius:6px 6px 0 0 !important;}
 button[role="tab"][aria-selected="true"],.tab-nav button.selected{background:#1e40af !important;color:#ffffff !important;border-color:#3b82f6 !important;}
 button[role="tab"]:hover:not([aria-selected="true"]){background:#334155 !important;color:#ffffff !important;}
+.tab-nav,.tab-nav>div,.tabs>div:first-child{border-bottom:none !important;box-shadow:none !important;}
+.tabitem,.tabs .tabitem{border-top:none !important;}
 textarea,input[type=text]{background:#1e293b !important;border:1px solid #334155 !important;color:#f1f5f9 !important;font-family:monospace !important;}
 .progress-bar-wrap{background:#1e293b !important;border-radius:8px !important;}
 .progress-bar{background:linear-gradient(90deg,#3b82f6,#60a5fa) !important;border-radius:8px !important;}
