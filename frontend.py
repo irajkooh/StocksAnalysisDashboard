@@ -518,10 +518,10 @@ def build_app():
         wf_panel   = gr.HTML(value="", visible=False)
         wf_vis     = gr.State(False)
         wf_cache   = gr.State("")
-        # CSS-hidden textbox — stores refresh interval in seconds as a string.
-        # Using Textbox (not Number) because textarea.value is reliably synced by Gradio 3.
+        # visible=False hides the Gradio wrapper (no border line rendered).
+        # In Gradio 6 the element is still mounted in the DOM, so JS can read textarea.value.
         ar_secs    = gr.Textbox(value=str(REFRESH_OPTIONS.get(saved_ref, 0)),
-                                elem_id="ar_secs_input", visible=True, show_label=False)
+                                elem_id="ar_secs_input", visible=False, show_label=False)
 
         # syms_state: live list of active symbols (drives tab visibility)
         syms_state = gr.State(value=list(init_syms))
@@ -530,12 +530,12 @@ def build_app():
         cur_sym      = gr.State(value=init_syms[0] if init_syms else "")
         report_state = gr.State("")
         rep_reading  = gr.State(False)
-        rep_tts_text  = gr.Textbox(value="", elem_id="rep_tts_buf",  visible=True, show_label=False)
+        rep_tts_text  = gr.Textbox(value="", elem_id="rep_tts_buf",  visible=False, show_label=False)
         chat_reading  = gr.State(False)
-        chat_tts_text = gr.Textbox(value="", elem_id="chat_tts_buf", visible=True, show_label=False)
+        chat_tts_text = gr.Textbox(value="", elem_id="chat_tts_buf", visible=False, show_label=False)
 
 
-        with gr.Row():
+        with gr.Row(elem_id="main_row"):
             # Watchlist sidebar
             with gr.Column(scale=1, min_width=130):
                 gr.HTML(
@@ -555,7 +555,7 @@ def build_app():
                 wl_add = gr.Button("+ Add", size="sm")
                 wl_del = gr.Button("- Delete", size="sm", variant="stop")
 
-            with gr.Column(scale=6):
+            with gr.Column(scale=6, elem_id="main_col"):
                 # ── Pre-built tab slots ────────────────────────────────────
                 # MAX_SLOTS tabs exist at all times; unused ones are hidden.
                 # Adding a symbol makes the next hidden slot visible with the new label.
@@ -996,12 +996,10 @@ body,.gradio-container{background:#0a0f1e !important;font-family:'Segoe UI',syst
 button[role="tab"],.tab-nav button{background:#1e293b !important;color:#ffffff !important;border:1px solid #334155 !important;font-weight:600 !important;border-radius:6px 6px 0 0 !important;}
 button[role="tab"][aria-selected="true"],.tab-nav button.selected{background:#1e40af !important;color:#ffffff !important;border-color:#3b82f6 !important;}
 button[role="tab"]:hover:not([aria-selected="true"]){background:#334155 !important;color:#ffffff !important;}
-.tab-nav,.tab-nav>div,.tabs>div:first-child{border-bottom:none !important;box-shadow:none !important;}
-.tabitem,.tabs .tabitem{border-top:none !important;}
 textarea,input[type=text]{background:#1e293b !important;border:1px solid #334155 !important;color:#f1f5f9 !important;font-family:monospace !important;}
 .progress-bar-wrap{background:#1e293b !important;border-radius:8px !important;}
 .progress-bar{background:linear-gradient(90deg,#3b82f6,#60a5fa) !important;border-radius:8px !important;}
-#rep_tts_buf,#chat_tts_buf,#chat_copy_buf,#ar_secs_input{display:none !important;}
+#chat_copy_buf{display:none !important;}
 #ar_dd{font-size:11px !important;min-width:100px !important;}
 #ar_dd label{font-size:10px !important;margin-bottom:1px !important;}
 #ar_dd .wrap-inner,#ar_dd .wrap{padding:2px 6px !important;min-height:unset !important;}
