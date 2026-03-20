@@ -500,11 +500,12 @@ def build_app():
 
         # ── Toolbar row 2 ──────────────────────────────────────────────────
         with gr.Row():
-            ref_btn = gr.Button("Analyze Stock", variant="primary",   scale=2, elem_id="analyze_btn")
-            ref_all = gr.Button("Analyze All",   variant="primary",   scale=2, elem_id="ar_ref_all")
-            ref_dd  = gr.Dropdown(choices=list(REFRESH_OPTIONS.keys()),
-                                  value=saved_ref, label="Auto-Refresh", scale=1,
-                                  elem_id="ar_dd", min_width=120)
+            ref_btn  = gr.Button("Analyze Stock", variant="primary",   scale=2, elem_id="analyze_btn")
+            ref_all  = gr.Button("Analyze All",   variant="primary",   scale=2, elem_id="ar_ref_all")
+            save_btn = gr.Button("💾 Save",        variant="secondary", scale=1, elem_id="save_btn")
+            ref_dd   = gr.Dropdown(choices=list(REFRESH_OPTIONS.keys()),
+                                   value=saved_ref, label="Auto-Refresh", scale=1,
+                                   elem_id="ar_dd", min_width=120)
 
         status_msg = gr.HTML("")
         wf_panel   = gr.HTML(value="", visible=False)
@@ -745,6 +746,14 @@ def build_app():
         ref_btn.click(fn=do_refresh,     inputs=[cur_sym],    outputs=PANEL)
         ref_all.click(fn=do_refresh_all, inputs=[syms_state, cur_sym], outputs=PANEL)
 
+        def do_save(syms, ref):
+            ok = save_session(list(syms), _owned_map, _watchlist, ref)
+            if ok:
+                return '<div style="color:#22c55e;font-size:12px">&#10003; Dashboard saved.</div>'
+            return '<div style="color:#ef4444;font-size:12px">Save failed.</div>'
+
+        save_btn.click(fn=do_save, inputs=[syms_state, ref_dd], outputs=[status_msg])
+
 
         # ── Auto-Refresh (JS polling loop injected at page load) ───────────
         _JS_AUTO_REFRESH = """() => {
@@ -978,6 +987,8 @@ textarea,input[type=text]{background:#1e293b !important;border:1px solid #334155
 #analyze_btn button:hover{background:linear-gradient(135deg,#0284c7,#38bdf8) !important;}
 #ar_ref_all button{background:linear-gradient(135deg,#065f46,#10b981) !important;border:none !important;color:#fff !important;font-weight:700 !important;letter-spacing:0.5px !important;}
 #ar_ref_all button:hover{background:linear-gradient(135deg,#047857,#34d399) !important;}
+#save_btn button{background:linear-gradient(135deg,#7c3aed,#a855f7) !important;border:none !important;color:#fff !important;font-weight:700 !important;letter-spacing:0.5px !important;}
+#save_btn button:hover{background:linear-gradient(135deg,#6d28d9,#c084fc) !important;}
 #watchlist_radio .wrap{gap:3px !important;flex-direction:column !important;}
 #watchlist_radio label{font-size:10px !important;padding:3px 8px !important;border-radius:12px !important;background:#1e293b !important;border:1px solid #334155 !important;color:#60a5fa !important;font-weight:600 !important;letter-spacing:0.5px !important;cursor:pointer !important;transition:all .15s !important;}
 #watchlist_radio label:hover{background:#1e3a5f !important;border-color:#3b82f6 !important;color:#93c5fd !important;}
