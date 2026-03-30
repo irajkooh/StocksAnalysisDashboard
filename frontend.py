@@ -817,6 +817,25 @@ def build_app():
         }"""
         demo.load(fn=None, js=_JS_UNLOCK_TTS)
 
+        # ── Restore session on every page load ────────────────────────────
+        # gr.State default is frozen at server-startup; re-read session.json
+        # so that saves made in a previous browser session are picked up.
+        def _on_page_load():
+            sess = load_session()
+            syms = list(sess.get("symbols", []))
+            _owned_map.clear()
+            _owned_map.update(sess.get("owned", {}))
+            _watchlist.clear()
+            _watchlist.extend(sess.get("watchlist", list(DEFAULT_WATCHLIST)))
+            ref  = sess.get("refresh_interval", "Off")
+            secs = str(REFRESH_OPTIONS.get(ref, 0))
+            return [syms, ref, secs] + list(_tab_updates(syms))
+
+        demo.load(
+            fn=_on_page_load,
+            outputs=[syms_state, ref_dd, ar_secs] + tab_objs,
+        )
+
         # ── Watchlist ──────────────────────────────────────────────────────
         def do_wl_add(sym):
             sym = sym.strip().upper()
