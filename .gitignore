@@ -1,0 +1,23 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets / API keys — never commit these
+.env
+*.key
+*.txt.secret
+.GROQ_API_KEY.txt
+.HF_TOKEN.txt
+
+# macOS
+.DS_Store
+
+# Runtime state
+session.json

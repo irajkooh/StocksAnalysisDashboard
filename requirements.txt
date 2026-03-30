@@ -1,0 +1,43 @@
+# ── Core ──────────────────────────────────────────────────────────────────────
+# Packages below marked "local only" are injected by HF Spaces — uncomment when installing locally.
+# fastapi>=0.123.0          # local only — HF Spaces injects fastapi<0.113.0
+# gradio>=5.25.0            # local only — HF Spaces injects gradio per sdk_version in README
+# uvicorn[standard]>=0.38.0 # local only — HF Spaces injects uvicorn>=0.14.0
+# pydantic>=2.12.0  # local only — HF Spaces gradio pins pydantic<2.12
+
+# ── LangGraph ─────────────────────────────────────────────────────────────────
+langgraph>=1.0.4
+langchain>=1.1.0
+langchain-core>=1.1.0
+langchain-community>=0.4.1
+# langchain-ollama>=1.0.0   # local only — Ollama does not run on HF Spaces
+
+# ── LLM ───────────────────────────────────────────────────────────────────────
+groq>=0.9.0
+
+# ── Market data ───────────────────────────────────────────────────────────────
+yfinance>=1.2.0
+pandas>=2.0.0
+numpy>=1.24.0
+
+# ── Charts ────────────────────────────────────────────────────────────────────
+plotly>=6.6.0
+mplfinance>=0.12.10b0
+matplotlib>=3.9.0
+Pillow>=10.0.0
+
+# ── Sentiment ─────────────────────────────────────────────────────────────────
+requests>=2.32.0
+praw>=7.7.0
+newsapi-python>=0.2.7
+beautifulsoup4>=4.14.0
+
+# ── TTS ───────────────────────────────────────────────────────────────────────
+gTTS>=2.5.0
+audioop-lts>=0.2.1    # pydub compat shim — audioop was removed in Python 3.13
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv>=1.2.0
+httpx>=0.28.0
+aiofiles>=24.1.0
+APScheduler>=3.10.0
