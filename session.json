@@ -1,0 +1,26 @@
+{
+  "version": "1.0",
+  "saved_at": "2026-03-20T17:06:51.948868",
+  "symbols": [
+    "NBIS",
+    "TTD",
+    "CONL"
+  ],
+  "owned": {
+    "NBIS": false,
+    "TTD": false,
+    "CONL": false
+  },
+  "watchlist": [
+    "MSTZ",
+    "MSTR",
+    "QBTS",
+    "BTC-USD",
+    "OPEN",
+    "NBIS",
+    "TTD",
+    "CONL",
+    "HIMS"
+  ],
+  "refresh_interval": "Off"
+}
