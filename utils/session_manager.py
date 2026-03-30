@@ -7,7 +7,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 from config import SESSION_FILE
 
@@ -29,11 +29,12 @@ def load_session() -> Dict:
 
 def save_session(symbols: List[str], owned: Dict[str, bool],
                  watchlist: List[str] = None,
-                 refresh_interval: str = "Off") -> bool:
-    """Persist current dashboard state to disk."""
+                 refresh_interval: str = "Off"):
+    """Persist current dashboard state to disk.
+    Returns (True, "") on success or (False, error_message) on failure."""
     data = {
         "version":          "1.0",
-        "saved_at":         datetime.utcnow().isoformat(),
+        "saved_at":         datetime.now(timezone.utc).isoformat(),
         "symbols":          symbols,
         "owned":            owned,
         "watchlist":        watchlist or [],
@@ -42,11 +43,11 @@ def save_session(symbols: List[str], owned: Dict[str, bool],
     try:
         with open(SESSION_FILE, "w") as f:
             json.dump(data, f, indent=2)
-        logger.info(f"Session saved: {symbols}")
-        return True
+        logger.info(f"Session saved to {SESSION_FILE}: {symbols}")
+        return True, ""
     except Exception as e:
-        logger.error(f"Could not save session: {e}")
-        return False
+        logger.error(f"Could not save session to {SESSION_FILE}: {e}")
+        return False, str(e)
 
 
 def _empty_session() -> Dict:

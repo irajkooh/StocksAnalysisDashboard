@@ -767,10 +767,15 @@ def build_app():
         cur_sym.change(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot])
 
         def do_save(syms, ref):
-            ok = save_session(list(syms), _owned_map, _watchlist, ref)
-            if ok:
-                return '<div style="color:#22c55e;font-size:12px">&#10003; Dashboard saved.</div>'
-            return '<div style="color:#ef4444;font-size:12px">Save failed.</div>'
+            try:
+                syms = list(syms) if syms else []
+                ok, err = save_session(syms, _owned_map, _watchlist, ref)
+                if ok:
+                    return '<div style="color:#22c55e;font-size:12px">&#10003; Dashboard saved.</div>'
+                return f'<div style="color:#ef4444;font-size:12px">Save failed: {err}</div>'
+            except Exception as e:
+                logger.error(f"do_save error: {e}")
+                return f'<div style="color:#ef4444;font-size:12px">Save error: {e}</div>'
 
         save_btn.click(fn=do_save, inputs=[syms_state, ref_dd], outputs=[status_msg])
 

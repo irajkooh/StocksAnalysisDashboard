@@ -8,8 +8,28 @@ from pathlib import Path
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
 ROOT_DIR      = Path(__file__).parent
-SESSION_FILE  = ROOT_DIR / "session.json"
 STATIC_DIR    = ROOT_DIR / "static"
+
+def _resolve_session_file() -> Path:
+    """Return a writable path for session.json.
+    On HF Spaces the git-tracked app dir may be read-only for committed files,
+    so fall back to /tmp if the canonical path is not writable."""
+    canonical = ROOT_DIR / "session.json"
+    try:
+        # Quick write test (won't overwrite — just checks permissions)
+        test = canonical.with_suffix(".write_test")
+        test.write_text("")
+        test.unlink()
+        return canonical
+    except OSError:
+        fallback = Path("/tmp/session.json")
+        # Copy existing data into fallback if not already there
+        if canonical.exists() and not fallback.exists():
+            import shutil
+            shutil.copy2(canonical, fallback)
+        return fallback
+
+SESSION_FILE = _resolve_session_file()
 
 # ─── Deployment ───────────────────────────────────────────────────────────────
 IS_HF_SPACE   = os.getenv("SPACE_ID") is not None

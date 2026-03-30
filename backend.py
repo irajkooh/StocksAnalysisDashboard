@@ -172,8 +172,8 @@ def get_session():
 
 @app.post("/session/save")
 def save_session_endpoint(req: SaveRequest):
-    ok = save_session(req.symbols, req.owned, req.watchlist, req.refresh_interval)
-    return {"ok": ok}
+    ok, err = save_session(req.symbols, req.owned, req.watchlist, req.refresh_interval)
+    return {"ok": ok, "error": err}
 
 
 @app.get("/chart/{ticker}/{tf}")
