@@ -30,8 +30,5 @@ Multi-tab AI-powered stock analysis dashboard with LangGraph multi-agent system.
 ## Environment Variables (set in HF Spaces Secrets)
 | Variable | Description |
 |---|---|
-| `GROQ_API_KEY` | Groq API key (LLM on HF Spaces) |
-| `NEWS_API_KEY` | NewsAPI key for headlines |
-| `REDDIT_CLIENT_ID` | Reddit app client ID |
-| `REDDIT_CLIENT_SECRET` | Reddit app client secret |
-| `HF_TOKEN` | HuggingFace token |
+| `GROQ_API_KEY` | Groq API key — primary LLM (`llama-3.1-8b-instant`, 500K tokens/day free) |
+| `HF_TOKEN` | HuggingFace token — fallback LLM when Groq rate-limits (`Llama-3.2-3B-Instruct`) |

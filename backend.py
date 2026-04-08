@@ -199,7 +199,7 @@ def chat(req: ChatRequest):
         return {"response": _call_llm(system, messages, max_tokens=600)}
     except Exception as e:
         logger.error(f"Chat error [{LLM_PROVIDER}]: {type(e).__name__}: {e}")
-        return {"response": f"I'm unable to answer right now. [{LLM_PROVIDER}] {type(e).__name__}: {e}"}
+    return {"response": "I'm unable to answer right now. Please check the LLM configuration."}
 
 
 # ── Capitol Trades helpers ────────────────────────────────────────────────────
@@ -237,13 +237,19 @@ def _format_ct_politicians(politicians: list) -> str:
 def _call_llm(system: str, messages: list, max_tokens: int = 600) -> str:
     """Call the configured LLM and return the response text."""
     if LLM_PROVIDER == "groq":
-        from groq import Groq
-        resp = Groq(api_key=GROQ_API_KEY).chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[{"role": "system", "content": system}] + messages,
-            max_tokens=max_tokens,
-        )
-        return resp.choices[0].message.content.strip()
+        from groq import Groq, RateLimitError
+        try:
+            resp = Groq(api_key=GROQ_API_KEY).chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[{"role": "system", "content": system}] + messages,
+                max_tokens=max_tokens,
+            )
+            return resp.choices[0].message.content.strip()
+        except RateLimitError:
+            logger.warning("Groq rate limit hit — falling back to HF Inference API")
+            # fall through to HF block below
+        except Exception:
+            raise
     if LLM_PROVIDER == "ollama":
         prompt = f"SYSTEM: {system}\n" + "\n".join(
             ("USER" if m["role"] == "user" else "ASSISTANT") + ": " + m["content"]
@@ -256,14 +262,13 @@ def _call_llm(system: str, messages: list, max_tokens: int = 600) -> str:
         )
         if r.status_code == 200:
             return r.json().get("response", "").strip()
-    if LLM_PROVIDER == "hf":
-        from huggingface_hub import InferenceClient
-        resp = InferenceClient(model=HF_MODEL, token=HF_TOKEN or None).chat_completion(
-            messages=[{"role": "system", "content": system}] + messages,
-            max_tokens=max_tokens,
-        )
-        return resp.choices[0].message.content.strip()
-    return ""
+    # HF Inference API — also used as Groq rate-limit fallback
+    from huggingface_hub import InferenceClient
+    resp = InferenceClient(model=HF_MODEL, token=HF_TOKEN or None).chat_completion(
+        messages=[{"role": "system", "content": system}] + messages,
+        max_tokens=max_tokens,
+    )
+    return resp.choices[0].message.content.strip()
 
 
 @app.post("/chat/capitol_trades")
@@ -354,7 +359,7 @@ def chat_capitol_trades(req: CapitolTradesChatRequest):
         return {"response": _call_llm(system, messages, max_tokens=800)}
     except Exception as e:
         logger.error(f"Capitol Trades LLM error [{LLM_PROVIDER}]: {type(e).__name__}: {e}")
-        return {"response": f"Unable to answer Capitol Trades questions right now. [{LLM_PROVIDER}] {type(e).__name__}: {e}"}
+    return {"response": "Unable to answer Capitol Trades questions right now."}
 
 
 @app.get("/session")

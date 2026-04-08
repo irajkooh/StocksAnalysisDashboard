@@ -211,15 +211,19 @@ def _call_llm(prompt: str) -> str:
             if r.status_code == 200:
                 return r.json().get("response", "").strip()
         elif LLM_PROVIDER == "groq":
-            from groq import Groq
-            client = Groq(api_key=GROQ_API_KEY)
-            resp   = client.chat.completions.create(
-                model=GROQ_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=800,
-            )
-            return resp.choices[0].message.content.strip()
-        elif LLM_PROVIDER == "hf":
+            from groq import Groq, RateLimitError
+            try:
+                client = Groq(api_key=GROQ_API_KEY)
+                resp   = client.chat.completions.create(
+                    model=GROQ_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=800,
+                )
+                return resp.choices[0].message.content.strip()
+            except RateLimitError:
+                logger.warning("Groq rate limit hit — falling back to HF Inference API")
+                # fall through to HF block below
+        if LLM_PROVIDER in ("hf", "groq"):
             from huggingface_hub import InferenceClient
             client = InferenceClient(model=HF_MODEL, token=HF_TOKEN or None)
             resp   = client.chat_completion(
