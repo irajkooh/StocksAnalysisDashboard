@@ -912,12 +912,6 @@ def build_app():
         ref_dd.change(fn=_on_ref_dd_change, inputs=[syms_state, ref_dd], outputs=[ar_secs])
 
         # ── Analysis ───────────────────────────────────────────────────────
-        def do_analyze(sym):
-            sym = (sym or "").strip().upper()
-            if not sym:
-                return [gr.update()] * 8
-            return list(_run(sym))
-
         def do_refresh(sym):
             sym = (sym or "").strip().upper()
             if not sym:

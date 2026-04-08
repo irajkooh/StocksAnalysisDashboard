@@ -4,7 +4,9 @@ Exposes REST endpoints consumed by the Gradio frontend.
 """
 
 import logging
+import re
 import time
+import requests as _req_lib
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
@@ -14,7 +16,12 @@ from pydantic import BaseModel
 from agents.supervisor import run_analysis, get_mermaid_diagram
 from utils.session_manager import load_session, save_session
 from utils.device import get_device, get_device_label
-from config import IS_HF_SPACE, LLM_PROVIDER, OLLAMA_MODEL, GROQ_MODEL, REFRESH_OPTIONS
+from config import (
+    IS_HF_SPACE, LLM_PROVIDER,
+    OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT,
+    GROQ_API_KEY, GROQ_MODEL,
+    HF_MODEL, REFRESH_OPTIONS,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -178,60 +185,20 @@ def get_price(ticker: str):
 @app.post("/chat")
 def chat(req: ChatRequest):
     """Per-stock chatbot using LLM with conversation history."""
-    from config import LLM_PROVIDER, OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT, GROQ_API_KEY, GROQ_MODEL, HF_MODEL
-
     system = req.chatbot_ctx or (
         f"You are a professional stock analyst assistant for {req.ticker}. "
         "Answer questions concisely and accurately based on technical and fundamental analysis."
     )
-
-    # Build message history
     messages = []
-    for pair in req.history[-10:]:  # last 10 turns
+    for pair in req.history[-10:]:
         if isinstance(pair, (list, tuple)) and len(pair) == 2:
             messages.append({"role": "user",      "content": pair[0]})
             messages.append({"role": "assistant", "content": pair[1]})
-
     messages.append({"role": "user", "content": req.question})
-
     try:
-        if LLM_PROVIDER == "ollama":
-            import requests as req_lib
-            prompt_parts = [f"SYSTEM: {system}\n"]
-            for m in messages:
-                prefix = "USER" if m["role"] == "user" else "ASSISTANT"
-                prompt_parts.append(f"{prefix}: {m['content']}")
-            full_prompt = "\n".join(prompt_parts)
-
-            r = req_lib.post(
-                f"{OLLAMA_BASE_URL}/api/generate",
-                json={"model": OLLAMA_MODEL, "prompt": full_prompt, "stream": False},
-                timeout=OLLAMA_TIMEOUT,
-            )
-            if r.status_code == 200:
-                return {"response": r.json().get("response", "").strip()}
-
-        elif LLM_PROVIDER == "groq":
-            from groq import Groq
-            client = Groq(api_key=GROQ_API_KEY)
-            resp   = client.chat.completions.create(
-                model=GROQ_MODEL,
-                messages=[{"role": "system", "content": system}] + messages,
-                max_tokens=600,
-            )
-            return {"response": resp.choices[0].message.content.strip()}
-        elif LLM_PROVIDER == "hf":
-            from huggingface_hub import InferenceClient
-            client = InferenceClient(model=HF_MODEL)
-            resp   = client.chat_completion(
-                messages=[{"role": "system", "content": system}] + messages,
-                max_tokens=600,
-            )
-            return {"response": resp.choices[0].message.content.strip()}
-
+        return {"response": _call_llm(system, messages, max_tokens=600)}
     except Exception as e:
         logger.error(f"Chat error: {e}")
-
     return {"response": "I'm unable to answer right now. Please check the LLM configuration."}
 
 
@@ -267,11 +234,42 @@ def _format_ct_politicians(politicians: list) -> str:
     return "\n".join(lines) if lines else "No politicians found."
 
 
+def _call_llm(system: str, messages: list, max_tokens: int = 600) -> str:
+    """Call the configured LLM and return the response text."""
+    if LLM_PROVIDER == "groq":
+        from groq import Groq
+        resp = Groq(api_key=GROQ_API_KEY).chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[{"role": "system", "content": system}] + messages,
+            max_tokens=max_tokens,
+        )
+        return resp.choices[0].message.content.strip()
+    if LLM_PROVIDER == "ollama":
+        prompt = f"SYSTEM: {system}\n" + "\n".join(
+            ("USER" if m["role"] == "user" else "ASSISTANT") + ": " + m["content"]
+            for m in messages
+        )
+        r = _req_lib.post(
+            f"{OLLAMA_BASE_URL}/api/generate",
+            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+            timeout=OLLAMA_TIMEOUT,
+        )
+        if r.status_code == 200:
+            return r.json().get("response", "").strip()
+    if LLM_PROVIDER == "hf":
+        from huggingface_hub import InferenceClient
+        resp = InferenceClient(model=HF_MODEL).chat_completion(
+            messages=[{"role": "system", "content": system}] + messages,
+            max_tokens=max_tokens,
+        )
+        return resp.choices[0].message.content.strip()
+    return ""
+
+
 @app.post("/chat/capitol_trades")
 def chat_capitol_trades(req: CapitolTradesChatRequest):
     """Chat endpoint that fetches live Capitol Trades data then queries the LLM."""
-    import re as _re
-    from capitol_trades_mcp import (
+    from utils.capitol_trades_scraper import (
         get_recent_trades, get_trades_by_ticker, get_top_issuers,
         get_politicians, get_trade_summary_stats, get_latest_insights,
     )
@@ -280,7 +278,7 @@ def chat_capitol_trades(req: CapitolTradesChatRequest):
     q_lower = q.lower()
 
     # Detect an explicit ticker symbol in the question (2-5 uppercase letters)
-    tickers_in_q = _re.findall(r'\b([A-Z]{2,5})\b', q)
+    tickers_in_q = re.findall(r'\b([A-Z]{2,5})\b', q)
 
     data_context = ""
     try:
@@ -353,40 +351,9 @@ def chat_capitol_trades(req: CapitolTradesChatRequest):
     messages.append({"role": "user", "content": user_msg})
 
     try:
-        from config import LLM_PROVIDER, GROQ_API_KEY, GROQ_MODEL, OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT, HF_MODEL
-        if LLM_PROVIDER == "groq":
-            from groq import Groq
-            client = Groq(api_key=GROQ_API_KEY)
-            resp = client.chat.completions.create(
-                model=GROQ_MODEL,
-                messages=[{"role": "system", "content": system}] + messages,
-                max_tokens=800,
-            )
-            return {"response": resp.choices[0].message.content.strip()}
-        elif LLM_PROVIDER == "ollama":
-            import requests as _req
-            prompt = f"SYSTEM: {system}\n" + "\n".join(
-                ("USER" if m["role"] == "user" else "ASSISTANT") + ": " + m["content"]
-                for m in messages
-            )
-            r = _req.post(
-                f"{OLLAMA_BASE_URL}/api/generate",
-                json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
-                timeout=OLLAMA_TIMEOUT,
-            )
-            if r.status_code == 200:
-                return {"response": r.json().get("response", "").strip()}
-        elif LLM_PROVIDER == "hf":
-            from huggingface_hub import InferenceClient
-            client = InferenceClient(model=HF_MODEL)
-            resp = client.chat_completion(
-                messages=[{"role": "system", "content": system}] + messages,
-                max_tokens=800,
-            )
-            return {"response": resp.choices[0].message.content.strip()}
+        return {"response": _call_llm(system, messages, max_tokens=800)}
     except Exception as e:
         logger.error(f"Capitol Trades LLM error: {e}")
-
     return {"response": "Unable to answer Capitol Trades questions right now."}
 
 
