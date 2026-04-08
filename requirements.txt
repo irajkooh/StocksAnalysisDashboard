@@ -24,7 +24,7 @@ numpy>=2.0.0
 plotly>=6.6.0
 mplfinance>=0.12.10b0
 matplotlib>=3.10.0
-Pillow>=12.0.0
+Pillow>=8.0.0
 
 # ── Sentiment ─────────────────────────────────────────────────────────────────
 requests>=2.32.5
