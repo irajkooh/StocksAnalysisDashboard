@@ -198,8 +198,8 @@ def chat(req: ChatRequest):
     try:
         return {"response": _call_llm(system, messages, max_tokens=600)}
     except Exception as e:
-        logger.error(f"Chat error: {e}")
-    return {"response": "I'm unable to answer right now. Please check the LLM configuration."}
+        logger.error(f"Chat error [{LLM_PROVIDER}]: {type(e).__name__}: {e}")
+        return {"response": f"I'm unable to answer right now. [{LLM_PROVIDER}] {type(e).__name__}: {e}"}
 
 
 # ── Capitol Trades helpers ────────────────────────────────────────────────────
@@ -353,8 +353,8 @@ def chat_capitol_trades(req: CapitolTradesChatRequest):
     try:
         return {"response": _call_llm(system, messages, max_tokens=800)}
     except Exception as e:
-        logger.error(f"Capitol Trades LLM error: {e}")
-    return {"response": "Unable to answer Capitol Trades questions right now."}
+        logger.error(f"Capitol Trades LLM error [{LLM_PROVIDER}]: {type(e).__name__}: {e}")
+        return {"response": f"Unable to answer Capitol Trades questions right now. [{LLM_PROVIDER}] {type(e).__name__}: {e}"}
 
 
 @app.get("/session")
