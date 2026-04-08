@@ -37,7 +37,7 @@ gTTS>=2.5.4
 audioop-lts>=0.2.1    # pydub compat shim — audioop was removed in Python 3.13
 
 # ── MCP Server ────────────────────────────────────────────────────────────────
-mcp[cli]>=1.27.0
+# mcp[cli]>=1.27.0         # local only — only needed to run capitol_trades_mcp.py as MCP server
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 python-dotenv>=1.2.2

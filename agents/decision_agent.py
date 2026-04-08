@@ -10,7 +10,7 @@ from typing import Dict, Tuple
 from agents.state import AnalysisState
 from config import (
     LLM_PROVIDER, OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT,
-    GROQ_API_KEY, GROQ_MODEL, HF_MODEL,
+    GROQ_API_KEY, GROQ_MODEL, HF_TOKEN, HF_MODEL,
     RSI_OVERSOLD, RSI_OVERBOUGHT, UNDERVALUED_THRESHOLD, OVERVALUED_THRESHOLD
 )
 
@@ -221,7 +221,7 @@ def _call_llm(prompt: str) -> str:
             return resp.choices[0].message.content.strip()
         elif LLM_PROVIDER == "hf":
             from huggingface_hub import InferenceClient
-            client = InferenceClient(model=HF_MODEL)
+            client = InferenceClient(model=HF_MODEL, token=HF_TOKEN or None)
             resp   = client.chat_completion(
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=800,

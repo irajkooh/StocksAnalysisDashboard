@@ -20,7 +20,7 @@ from config import (
     IS_HF_SPACE, LLM_PROVIDER,
     OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT,
     GROQ_API_KEY, GROQ_MODEL,
-    HF_MODEL, REFRESH_OPTIONS,
+    HF_TOKEN, HF_MODEL, REFRESH_OPTIONS,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -258,7 +258,7 @@ def _call_llm(system: str, messages: list, max_tokens: int = 600) -> str:
             return r.json().get("response", "").strip()
     if LLM_PROVIDER == "hf":
         from huggingface_hub import InferenceClient
-        resp = InferenceClient(model=HF_MODEL).chat_completion(
+        resp = InferenceClient(model=HF_MODEL, token=HF_TOKEN or None).chat_completion(
             messages=[{"role": "system", "content": system}] + messages,
             max_tokens=max_tokens,
         )
