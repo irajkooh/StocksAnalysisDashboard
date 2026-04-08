@@ -93,6 +93,9 @@ def _api(path, method="GET", payload=None, timeout=180):
 def _analyze_api(ticker, owns):
     return _api("/analyze", "POST", {"ticker": ticker, "owns_stock": owns})
 
+def _price_refresh_api(ticker):
+    return _api(f"/price/{ticker}")
+
 def _chat_api(ticker, question):
     return _api("/chat", "POST", {
         "ticker": ticker,
@@ -166,10 +169,11 @@ def _session_pills(si: dict) -> str:
             f'{body}</div>'
         )
 
-    pre  = _pill("Pre-Market",  si.get("pre_price"),     si.get("pre_change"),     si.get("pre_pct"),     "#60a5fa")
-    reg  = _pill("Regular",     si.get("regular_price"), si.get("regular_change"), si.get("regular_pct"), "#38bdf8")
-    post = _pill("After-Hours", si.get("post_price"),    si.get("post_change"),    si.get("post_pct"),    "#a78bfa")
-    return f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">{pre}{reg}{post}</div>'
+    pre  = _pill("Pre-Market",    si.get("pre_price"),       si.get("pre_change"),       si.get("pre_pct"),       "#60a5fa")
+    reg  = _pill("Regular",       si.get("regular_price"),   si.get("regular_change"),   si.get("regular_pct"),   "#38bdf8")
+    post = _pill("After-Hours",   si.get("post_price"),      si.get("post_change"),      si.get("post_pct"),      "#a78bfa")
+    ovn  = _pill("Overnight Gap", si.get("overnight_price"), si.get("overnight_change"), si.get("overnight_pct"), "#fbbf24")
+    return f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">{pre}{reg}{post}{ovn}</div>'
 
 
 def _hero_html(ticker, action, price, dcf, owns, session_info=None):
@@ -182,6 +186,59 @@ def _hero_html(ticker, action, price, dcf, owns, session_info=None):
     badge = ('<b style="background:#7c3aed;color:#fff;padding:2px 8px;border-radius:12px;'
              'font-size:11px;margin-left:8px">I OWN</b>') if owns else ""
     sess = _session_pills(session_info or {})
+
+    # Pick the most current available price: post-market → pre-market → regular
+    si = session_info or {}
+    if si.get("post_price") is not None:
+        live_price  = si["post_price"]
+        live_change = si.get("post_change")
+        live_pct    = si.get("post_pct")
+        sess_label  = "After-Hours"
+        sess_color  = "#a78bfa"
+    elif si.get("pre_price") is not None:
+        live_price  = si["pre_price"]
+        live_change = si.get("pre_change")
+        live_pct    = si.get("pre_pct")
+        sess_label  = "Pre-Market"
+        sess_color  = "#60a5fa"
+    else:
+        live_price  = price
+        live_change = si.get("regular_change")
+        live_pct    = si.get("regular_pct")
+        sess_label  = "Regular"
+        sess_color  = "#38bdf8"
+
+    # Change/pct line
+    if live_change is not None and live_pct is not None:
+        sign   = "+" if live_change >= 0 else ""
+        chg_cl = "#22c55e" if live_change >= 0 else "#ef4444"
+        arrow  = "▲" if live_change >= 0 else "▼"
+        chg_html = (
+            f'<span style="color:{chg_cl};font-size:14px;font-weight:600">'
+            f'{arrow} {sign}{live_change:.2f} ({sign}{live_pct:.2f}%)</span>'
+        )
+    else:
+        chg_html = ""
+
+    sess_badge = (
+        f'<span style="background:{sess_color}22;border:1px solid {sess_color};'
+        f'color:{sess_color};font-size:9px;font-weight:700;padding:1px 7px;'
+        f'border-radius:10px;text-transform:uppercase;letter-spacing:1px;'
+        f'margin-left:8px;vertical-align:middle">{sess_label}</span>'
+    )
+
+    price_time = si.get("price_time")
+    time_html  = (
+        f'<div style="color:#475569;font-size:10px;font-family:monospace;margin-top:1px">'
+        f'last trade: {price_time}</div>'
+    ) if price_time else ""
+
+    refreshed_at   = si.get("_refreshed_at")
+    refreshed_html = (
+        f'<div style="color:#22c55e;font-size:10px;font-family:monospace;margin-top:2px">'
+        f'&#128259; prices refreshed at {refreshed_at}</div>'
+    ) if refreshed_at else ""
+
     header = (
         f'<div style="color:#38bdf8;font-size:13px;font-weight:700;font-family:monospace;'
         f'text-transform:uppercase;letter-spacing:3px;margin-bottom:8px;'
@@ -197,7 +254,10 @@ def _hero_html(ticker, action, price, dcf, owns, session_info=None):
         f'<div style="color:#94a3b8;font-size:10px;font-family:monospace;'
         f'text-transform:uppercase;letter-spacing:2px">{ticker}</div>'
         f'<div style="color:#f8fafc;font-size:30px;font-weight:800;margin:3px 0">'
-        f'${price:.2f}{badge}</div>'
+        f'${live_price:.2f}{sess_badge}{badge}</div>'
+        f'{time_html}'
+        f'{refreshed_html}'
+        f'<div style="margin-bottom:2px">{chg_html}</div>'
         f'<div style="color:{ac};font-size:20px;font-weight:700">{action}</div>'
         f'{sess}'
         f'</div>'
@@ -422,11 +482,39 @@ def _session_bar(si: dict) -> str:
     )
 
 
+# SMA colour palette — kept in sync with the legend strip below the chart
+_SMA_COLORS = {20: "#22c55e", 50: "#fb923c", 100: "#38bdf8", 200: "#a78bfa"}
+
 def _tv_chart(symbol: str, session_info: dict = None) -> str:
-    """TradingView Advanced Chart widget embedded in an iframe."""
+    """TradingView Advanced Chart widget embedded in an iframe + SMA legend."""
     uid = f"tv_{symbol}"
+    # SMA legend strip
+    def _swatch(period, color):
+        return (
+            f'<span style="display:inline-flex;align-items:center;gap:5px;'
+            f'margin-right:14px">'
+            f'<span style="display:inline-block;width:28px;height:3px;'
+            f'background:{color};border-radius:2px"></span>'
+            f'<span style="color:{color};font-size:11px;font-weight:700;'
+            f'font-family:monospace">SMA {period}</span></span>'
+        )
+    c20  = _SMA_COLORS[20]
+    c50  = _SMA_COLORS[50]
+    c100 = _SMA_COLORS[100]
+    c200 = _SMA_COLORS[200]
+    legend = (
+        '<div style="display:flex;align-items:center;flex-wrap:wrap;'
+        'padding:6px 12px;background:#0f172a;border:1px solid #1e293b;'
+        'border-top:none;border-radius:0 0 8px 8px">'
+        + _swatch(20,  c20)
+        + _swatch(50,  c50)
+        + _swatch(100, c100)
+        + _swatch(200, c200)
+        + '</div>'
+    )
     return f"""
-<div style="height:560px;width:100%;border-radius:8px;overflow:hidden;border:1px solid #1e293b">
+<div style="border-radius:8px;overflow:hidden;border:1px solid #1e293b">
+<div style="height:560px;width:100%">
 <iframe srcdoc='<!DOCTYPE html><html><head>
 <meta charset="utf-8">
 <style>html,body{{margin:0;padding:0;height:100%;background:#0f172a}}</style>
@@ -435,7 +523,7 @@ def _tv_chart(symbol: str, session_info: dict = None) -> str:
   <div id="{uid}" style="height:100%;width:100%"></div>
   <script src="https://s3.tradingview.com/tv.js"></script>
   <script>
-    new TradingView.widget({{
+    var _w = new TradingView.widget({{
       container_id: "{uid}",
       autosize: true,
       symbol: "{symbol}",
@@ -447,7 +535,14 @@ def _tv_chart(symbol: str, session_info: dict = None) -> str:
       withdateranges: true,
       hide_side_toolbar: false,
       allow_symbol_change: false,
-      studies: ["RSI@tv-basicstudies","MACD@tv-basicstudies","BB@tv-basicstudies"]
+      studies: ["RSI@tv-basicstudies", "MACD@tv-basicstudies", "BB@tv-basicstudies"]
+    }});
+    _w.onChartReady(function() {{
+      var c = _w.chart();
+      c.createStudy("Moving Average", false, false, {{length: 20}},  {{"Plot.color": "{c20}",  "Plot.linewidth": 2}});
+      c.createStudy("Moving Average", false, false, {{length: 50}},  {{"Plot.color": "{c50}",  "Plot.linewidth": 2}});
+      c.createStudy("Moving Average", false, false, {{length: 100}}, {{"Plot.color": "{c100}", "Plot.linewidth": 2}});
+      c.createStudy("Moving Average", false, false, {{length: 200}}, {{"Plot.color": "{c200}", "Plot.linewidth": 2}});
     }});
   </script>
 </div>
@@ -455,7 +550,9 @@ def _tv_chart(symbol: str, session_info: dict = None) -> str:
 width="100%" height="560" frameborder="0"
 style="width:100%;height:560px;border:none"
 sandbox="allow-scripts allow-same-origin allow-popups"
-></iframe></div>"""
+></iframe></div>
+{legend}
+</div>"""
 
 
 def _run(ticker):
@@ -551,9 +648,10 @@ def build_app():
 
         # ── Toolbar row 2 ──────────────────────────────────────────────────
         with gr.Row():
-            ref_btn  = gr.Button("Analyze Stock", variant="primary",   scale=2, elem_id="refresh-sel-btn")
-            ref_all  = gr.Button("Analyze All",   variant="primary",   scale=2, elem_id="refresh-all-btn")
-            save_btn = gr.Button("💾 Save Dashboard", variant="secondary", scale=1, elem_id="save-btn")
+            ref_btn   = gr.Button("Analyze Stock",  variant="primary",   scale=2, elem_id="refresh-sel-btn")
+            ref_all   = gr.Button("Analyze All",    variant="primary",   scale=2, elem_id="refresh-all-btn")
+            price_btn = gr.Button("🔄 Live Prices", variant="secondary", scale=1, elem_id="price-refresh-btn")
+            save_btn  = gr.Button("💾 Save Dashboard", variant="secondary", scale=1, elem_id="save-btn")
             ref_dd   = gr.Dropdown(choices=list(REFRESH_OPTIONS.keys()),
                                    value=saved_ref, label="Auto-Refresh", scale=1,
                                    elem_id="ar_dd", min_width=120)
@@ -603,8 +701,11 @@ def build_app():
                 # MAX_SLOTS tabs exist at all times; unused ones are hidden.
                 # Adding a symbol makes the next hidden slot visible with the new label.
                 # Deleting hides the slot.
-                tab_objs    = []   # gr.Tab objects
-                del_tab_btns = []  # per-tab delete buttons
+                tab_objs     = []   # gr.Tab objects
+                del_tab_btns  = []  # per-tab delete buttons
+                own_chk_list  = []  # per-tab "I OWN" checkboxes
+                mv_left_btns  = []  # per-tab ◀ move-left buttons
+                mv_right_btns = []  # per-tab ▶ move-right buttons
 
                 with gr.Tabs():
                     for i in range(MAX_SLOTS):
@@ -616,7 +717,15 @@ def build_app():
                                 own_chk = gr.Checkbox(
                                     label=f"I OWN {sym}" if sym else "I OWN",
                                     value=_owned_map.get(sym, False) if sym else False,
-                                    scale=4,
+                                    scale=3,
+                                )
+                                mv_l_btn = gr.Button(
+                                    "◀", size="sm", variant="secondary",
+                                    min_width=0, scale=1,
+                                )
+                                mv_r_btn = gr.Button(
+                                    "▶", size="sm", variant="secondary",
+                                    min_width=0, scale=1,
                                 )
                                 dtab_btn = gr.Button(
                                     "Delete", size="sm", variant="stop",
@@ -639,6 +748,9 @@ def build_app():
                             )
                         tab_objs.append(t)
                         del_tab_btns.append(dtab_btn)
+                        own_chk_list.append(own_chk)
+                        mv_left_btns.append(mv_l_btn)
+                        mv_right_btns.append(mv_r_btn)
 
 
                 # ── Shared analysis panel ──────────────────────────────────
@@ -708,31 +820,42 @@ def build_app():
             if not sym:
                 return ("", syms,
                         '<div style="color:#ef4444;font-size:12px">Enter a symbol.</div>',
-                        *_tab_updates(syms))
+                        *_tab_updates(syms), *_own_chk_updates(syms))
             if sym in syms:
                 return ("", syms,
                         f'<div style="color:#facc15;font-size:12px">{sym} already open.</div>',
-                        *_tab_updates(syms))
+                        *_tab_updates(syms), *_own_chk_updates(syms))
             if len(syms) >= MAX_SLOTS:
                 return ("", syms,
                         f'<div style="color:#ef4444;font-size:12px">Max {MAX_SLOTS} tabs reached.</div>',
-                        *_tab_updates(syms))
+                        *_tab_updates(syms), *_own_chk_updates(syms))
             syms.append(sym)
             _owned_map.setdefault(sym, False)
             save_session(syms, _owned_map, _watchlist)
             return ("", syms,
                     f'<div style="color:#22c55e;font-size:12px"><b>{sym}</b> added.</div>',
-                    *_tab_updates(syms))
+                    *_tab_updates(syms), *_own_chk_updates(syms))
+
+        def _own_chk_updates(syms):
+            """Return gr.update() for each I OWN checkbox based on current syms list."""
+            updates = []
+            for i in range(MAX_SLOTS):
+                if i < len(syms) and syms[i]:
+                    s = syms[i]
+                    updates.append(gr.update(label=f"I OWN {s}", value=_owned_map.get(s, False)))
+                else:
+                    updates.append(gr.update(label="I OWN", value=False))
+            return updates
 
         def _sync_tabs(syms):
-            """Re-apply tab updates from current syms_state (fixes Gradio 5.x render lag)."""
-            return _tab_updates(list(syms))
+            """Re-apply tab and checkbox updates from current syms_state."""
+            return _tab_updates(list(syms)) + _own_chk_updates(list(syms))
 
-        _ADD_OUTPUTS = [sym_in, syms_state, status_msg] + tab_objs
+        _ADD_OUTPUTS = [sym_in, syms_state, status_msg] + tab_objs + own_chk_list
         (add_btn.click(fn=do_add, inputs=[sym_in, syms_state], outputs=_ADD_OUTPUTS)
-                .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs))
+                .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list))
         (sym_in.submit(fn=do_add, inputs=[sym_in, syms_state], outputs=_ADD_OUTPUTS)
-                .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs))
+                .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list))
 
         # ── Per-tab Delete buttons (reliable: no cur_sym race condition) ───
         def do_delete_slot(syms, idx):
@@ -740,7 +863,7 @@ def build_app():
             if idx >= len(syms) or not syms[idx]:
                 return (syms,
                         '<div style="color:#ef4444;font-size:12px">No stock at this slot.</div>',
-                        *_tab_updates(syms))
+                        *_tab_updates(syms), *_own_chk_updates(syms))
             sym = syms[idx]
             syms.pop(idx)
             _owned_map.pop(sym, None)
@@ -748,14 +871,38 @@ def build_app():
             save_session(syms, _owned_map, _watchlist)
             return (syms,
                     f'<div style="color:#22c55e;font-size:12px"><b>{sym}</b> deleted.</div>',
-                    *_tab_updates(syms))
+                    *_tab_updates(syms), *_own_chk_updates(syms))
 
         for i, btn in enumerate(del_tab_btns):
             (btn.click(
                 fn=lambda syms, idx=i: do_delete_slot(syms, idx),
                 inputs=[syms_state],
-                outputs=[syms_state, status_msg] + tab_objs,
-            ).then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs))
+                outputs=[syms_state, status_msg] + tab_objs + own_chk_list,
+            ).then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list))
+
+        # ── Per-tab Move Left / Move Right buttons ─────────────────────────
+        def do_move_slot(syms, idx, direction):
+            syms = list(syms)
+            n = len(syms)
+            swap = idx + direction   # direction: -1 = left, +1 = right
+            if idx < 0 or idx >= n or swap < 0 or swap >= n:
+                return (syms, '', *_tab_updates(syms), *_own_chk_updates(syms))
+            syms[idx], syms[swap] = syms[swap], syms[idx]
+            save_session(syms, _owned_map, _watchlist)
+            return (syms, '', *_tab_updates(syms), *_own_chk_updates(syms))
+
+        _MOVE_OUTPUTS = [syms_state, status_msg] + tab_objs + own_chk_list
+        for i, (lb, rb) in enumerate(zip(mv_left_btns, mv_right_btns)):
+            (lb.click(
+                fn=lambda syms, idx=i: do_move_slot(syms, idx, -1),
+                inputs=[syms_state],
+                outputs=_MOVE_OUTPUTS,
+            ).then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list))
+            (rb.click(
+                fn=lambda syms, idx=i: do_move_slot(syms, idx, +1),
+                inputs=[syms_state],
+                outputs=_MOVE_OUTPUTS,
+            ).then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list))
 
         # ── Save ───────────────────────────────────────────────────────────
         def _on_ref_dd_change(syms, rv):
@@ -777,6 +924,89 @@ def build_app():
                 return [gr.update()] * 8
             _analysis_cache.pop(sym, None)
             return list(_run(sym))
+
+        def do_price_refresh(cur_sym_val, syms):
+            """Fetch fresh prices for ALL open tabs directly via yfinance — no HTTP."""
+            import time as _time
+            import yfinance as yf
+            from agents.technical_agent import _session_info as _si_fn
+
+            syms = [s for s in list(syms) if s]
+            cur  = (cur_sym_val or "").strip().upper()
+            if not syms:
+                return gr.update(), ""
+
+            # Timestamp for the badge (local time)
+            t       = _time.localtime()
+            h12     = t.tm_hour % 12 or 12
+            ampm    = "AM" if t.tm_hour < 12 else "PM"
+            now_str = f"{h12}:{t.tm_min:02d}:{t.tm_sec:02d} {ampm}"
+
+            def _fetch_si(s):
+                """Return a fresh session_info dict for symbol s."""
+                try:
+                    stock = yf.Ticker(s)
+                    ext_last, ext_time = None, None
+                    try:
+                        df_1m = stock.history(period="1d", interval="1m", prepost=True)
+                        if df_1m is not None and not df_1m.empty:
+                            ext_last = float(df_1m["Close"].iloc[-1])
+                            ts = df_1m.index[-1]
+                            h, m = ts.hour, ts.minute
+                            ap = "AM" if h < 12 else "PM"
+                            ext_time = f"{h % 12 or 12}:{m:02d} {ap} ET"
+                    except Exception:
+                        pass
+                    df_1d = None
+                    try:
+                        df_1d = stock.history(period="2d", interval="1d", auto_adjust=True)
+                        if df_1d is not None and not df_1d.empty:
+                            df_1d.index = df_1d.index.tz_localize(None)
+                        else:
+                            df_1d = None
+                    except Exception:
+                        pass
+                    info = {}
+                    if ext_last is not None:
+                        info["_ext_last_price"] = ext_last
+                    if ext_time is not None:
+                        info["_ext_last_time"]  = ext_time
+                    si = _si_fn(info, df_1d)
+                    si["_refreshed_at"] = now_str   # persist through tab switches
+                    return si
+                except Exception as e:
+                    logger.error(f"do_price_refresh [{s}]: {e}")
+                    return None
+
+            # Refresh every open tab
+            refreshed, failed = 0, 0
+            for s in syms:
+                si = _fetch_si(s)
+                if si:
+                    data = _analysis_cache.get(s, {})
+                    data["session_info"] = si
+                    _analysis_cache[s]   = data
+                    refreshed += 1
+                else:
+                    failed += 1
+
+            # Render hero for the currently visible tab
+            data  = _analysis_cache.get(cur, {})
+            si    = data.get("session_info", {}) if data else {}
+            ind   = data.get("indicators", {})
+            dcf   = data.get("dcf", {})
+            dec   = data.get("decision", {})
+            owns  = _owned_map.get(cur, False)
+            hero  = _hero_html(cur, dec.get("action", "N/A"), ind.get("price", 0), dcf, owns, si)
+
+            parts = [f"{refreshed} symbol{'s' if refreshed != 1 else ''} refreshed"]
+            if failed:
+                parts.append(f"{failed} failed")
+            msg = (
+                f'<div style="color:#22c55e;font-size:12px">'
+                f'&#128259; {" | ".join(parts)} at {now_str}</div>'
+            )
+            return hero, msg
 
         def do_refresh_all(syms, active_sym):
             """Clear all caches, re-analyze all symbols."""
@@ -826,6 +1056,7 @@ def build_app():
                 .then(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot]))
         (ref_all.click(fn=do_refresh_all, inputs=[syms_state, cur_sym], outputs=PANEL)
                 .then(fn=_clear_chat_all, inputs=[syms_state], outputs=[chatbot]))
+        price_btn.click(fn=do_price_refresh, inputs=[cur_sym, syms_state], outputs=[hero_out, status_msg])
 
         cur_sym.change(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot])
 
@@ -845,7 +1076,8 @@ def build_app():
 
         # ── Auto-Refresh (JS polling loop injected at page load) ───────────
         _JS_AUTO_REFRESH = """() => {
-            var lastRefresh = Date.now();
+            var lastRefresh      = Date.now();
+            var lastPriceRefresh = Date.now();
             function getSecs() {
                 var el = document.querySelector('#ar_secs_input textarea');
                 if (!el) el = document.querySelector('#ar_secs_input input');
@@ -856,11 +1088,20 @@ def build_app():
                 if (!btn) btn = document.querySelector('#refresh-all-btn');
                 if (btn) btn.click();
             }
+            function clickPriceRefresh() {
+                var btn = document.querySelector('#price-refresh-btn button');
+                if (!btn) btn = document.querySelector('#price-refresh-btn');
+                if (btn) btn.click();
+            }
             function tick() {
                 var secs = getSecs();
                 if (secs > 0 && (Date.now() - lastRefresh) >= secs * 1000) {
                     lastRefresh = Date.now();
                     clickRefreshAll();
+                }
+                if ((Date.now() - lastPriceRefresh) >= 120000) {
+                    lastPriceRefresh = Date.now();
+                    clickPriceRefresh();
                 }
             }
             setTimeout(function() { setInterval(tick, 2000); }, 3000);
@@ -925,6 +1166,8 @@ def build_app():
                     var ct = mb.textContent.indexOf('Politicians') !== -1;
                     s(mb, ct ? AMB : IND, ct ? '1px solid #fbbf24' : '1px solid #6366f1', ct ? AMB_H : IND_H);
                 }
+                /* Live Prices */
+                s(btnOf('price-refresh-btn'), TEAL, '2px solid #22d3ee', TEAL_H);
                 /* Send / Copy / Clear */
                 s(btnOf('snd-btn'), GREEN, '2px solid #34d399', GREEN_H);
                 s(btnOf('cpy-btn'), TEAL,  'none',              TEAL_H);
@@ -1005,11 +1248,11 @@ def build_app():
             _watchlist.extend(sess.get("watchlist", list(DEFAULT_WATCHLIST)))
             ref  = sess.get("refresh_interval", "Off")
             secs = str(REFRESH_OPTIONS.get(ref, 0))
-            return [syms, ref, secs] + list(_tab_updates(syms))
+            return [syms, ref, secs] + list(_tab_updates(syms)) + list(_own_chk_updates(syms))
 
         demo.load(
             fn=_on_page_load,
-            outputs=[syms_state, ref_dd, ar_secs] + tab_objs,
+            outputs=[syms_state, ref_dd, ar_secs] + tab_objs + own_chk_list,
         )
 
         # ── Watchlist ──────────────────────────────────────────────────────
@@ -1036,26 +1279,26 @@ def build_app():
         def do_wl_select(sym, syms):
             """Add selected watchlist stock as a tab."""
             if not sym:
-                return (list(syms), gr.update(), *_tab_updates(list(syms)))
+                return (list(syms), gr.update(), *_tab_updates(list(syms)), *_own_chk_updates(list(syms)))
             syms = list(syms)
             if sym in syms:
                 return (syms,
                         f'<div style="color:#facc15;font-size:12px">{sym} already open.</div>',
-                        *_tab_updates(syms))
+                        *_tab_updates(syms), *_own_chk_updates(syms))
             if len(syms) >= MAX_SLOTS:
                 return (syms,
                         f'<div style="color:#ef4444;font-size:12px">Max {MAX_SLOTS} tabs reached.</div>',
-                        *_tab_updates(syms))
+                        *_tab_updates(syms), *_own_chk_updates(syms))
             syms.append(sym)
             _owned_map.setdefault(sym, False)
             save_session(syms, _owned_map, _watchlist)
             return (syms,
                     f'<div style="color:#22c55e;font-size:12px"><b>{sym}</b> added.</div>',
-                    *_tab_updates(syms))
+                    *_tab_updates(syms), *_own_chk_updates(syms))
 
         (wl_radio.change(fn=do_wl_select, inputs=[wl_radio, syms_state],
-                         outputs=[syms_state, status_msg] + tab_objs)
-                 .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs))
+                         outputs=[syms_state, status_msg] + tab_objs + own_chk_list)
+                 .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list))
 
         # ── Workflow ───────────────────────────────────────────────────────
         def do_wf(vis, cached):

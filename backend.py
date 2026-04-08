@@ -60,7 +60,9 @@ class CapitolTradesChatRequest(BaseModel):
 # ─── Cache (simple in-memory, per ticker) ─────────────────────────────────────
 _analysis_cache: dict = {}
 _charts_cache:   dict = {}   # ticker → {tf: base64_png}
-CACHE_TTL = 300  # seconds
+_price_cache:    dict = {}   # ticker → {_ts, data} — lightweight price-only
+CACHE_TTL       = 300  # seconds  (full analysis)
+PRICE_CACHE_TTL =  60  # seconds  (price-only endpoint)
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
@@ -107,6 +109,70 @@ def analyze(req: AnalyzeRequest):
 
     _analysis_cache[cache_key] = {"_ts": time.time(), "data": result}
     return result
+
+
+@app.get("/price/{ticker}")
+def get_price(ticker: str):
+    """Lightweight price refresh: returns session_info with the latest traded price.
+    Uses history(period='1d', interval='1m', prepost=True) so it always reflects
+    the most recent trade — after-hours close, overnight ECN, or pre-market.
+    60-second cache; no full analysis re-run."""
+    ticker = ticker.upper().strip()
+    if not ticker:
+        raise HTTPException(400, "Ticker required")
+    cached = _price_cache.get(ticker)
+    if cached and (time.time() - cached["_ts"]) < PRICE_CACHE_TTL:
+        logger.debug(f"Price cache hit for {ticker}")
+        return cached["data"]
+    try:
+        import yfinance as yf
+        from agents.technical_agent import _session_info
+        # Create a fresh Ticker to bypass yfinance's internal per-instance cache
+        stock = yf.Ticker(ticker)
+
+        # 1-min bars with prepost=True — last Close is always the most recent trade
+        ext_last = None
+        ext_time = None
+        try:
+            df_1m = stock.history(period="1d", interval="1m", prepost=True,
+                                  raise_errors=False)
+            if df_1m is not None and not df_1m.empty:
+                ext_last = float(df_1m["Close"].iloc[-1])
+                ts = df_1m.index[-1]
+                try:
+                    h, m = ts.hour, ts.minute
+                    ampm = "AM" if h < 12 else "PM"
+                    h12  = h % 12 or 12
+                    ext_time = f"{h12}:{m:02d} {ampm} ET"
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Daily bars for regular close + prev close reference
+        df_1d = None
+        try:
+            df_1d = stock.history(period="2d", interval="1d", auto_adjust=True)
+            if df_1d is not None and not df_1d.empty:
+                df_1d.index = df_1d.index.tz_localize(None)
+            else:
+                df_1d = None
+        except Exception:
+            pass
+
+        # Minimal info dict — skip slow stock.info entirely
+        info = {}
+        if ext_last is not None:
+            info["_ext_last_price"] = ext_last
+        if ext_time is not None:
+            info["_ext_last_time"] = ext_time
+
+        si = _session_info(info, df_1d)
+        _price_cache[ticker] = {"_ts": time.time(), "data": si}
+        return si
+    except Exception as e:
+        logger.error(f"price endpoint [{ticker}]: {e}")
+        raise HTTPException(500, str(e))
 
 
 @app.post("/chat")

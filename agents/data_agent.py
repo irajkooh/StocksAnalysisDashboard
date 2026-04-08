@@ -62,6 +62,23 @@ def data_agent(state: AnalysisState) -> AnalysisState:
         except Exception:
             info = {}
 
+        # 1-min bars with prepost=True → last Close = most recent traded price at any hour.
+        # postMarketPrice in stock.info becomes None after 8 PM ET; this covers that gap.
+        try:
+            df_ext = stock.history(period="1d", interval="1m", prepost=True)
+            if df_ext is not None and not df_ext.empty:
+                info["_ext_last_price"] = float(df_ext["Close"].iloc[-1])
+                ts = df_ext.index[-1]
+                try:
+                    h, m = ts.hour, ts.minute
+                    ampm = "AM" if h < 12 else "PM"
+                    h12  = h % 12 or 12
+                    info["_ext_last_time"] = f"{h12}:{m:02d} {ampm} ET"
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         # Financials
         try:
             financials = stock.financials

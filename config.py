@@ -69,7 +69,7 @@ SEC_EDGAR_BASE_URL = "https://efts.sec.gov/LATEST/search-index?q={ticker}&dateRa
 DEFAULT_PERIOD      = "3mo"       # yfinance period for day-trading context
 DEFAULT_INTERVAL    = "1d"        # candle interval
 INTRADAY_INTERVAL   = "5m"        # used when period <= 5d
-SMA_PERIODS         = [20, 50, 200]
+SMA_PERIODS         = [20, 50, 100, 200]
 RSI_PERIOD          = 14
 MACD_FAST           = 12
 MACD_SLOW           = 26
