@@ -64,6 +64,9 @@ CT_SAMPLE_QUESTIONS = [
     "Which lawmakers sold recently?",
     "Biggest Congress trade sizes?",
     "Any AI stock trades by Congress?",
+    "Who traded energy stocks?",
+    "Most active Congress traders?",
+    "Any AAPL trades by politicians?",
 ]
 
 # Keywords that route a question to Capitol Trades instead of per-stock chat
@@ -681,12 +684,18 @@ def build_app():
                             "📈 Analyzed Stock Questions", size="sm", variant="secondary",
                             min_width=0, elem_id="mode-btn",
                         )
-                    with gr.Row():
-                        qbtns = [gr.Button(q, size="sm", min_width=0, elem_id=f"qbtn-{i}")
-                                 for i, q in enumerate(SAMPLE_QUESTIONS)]
-                    with gr.Row():
-                        ct_qbtns = [gr.Button(q, size="sm", min_width=0, elem_id=f"ctbtn-{i}")
-                                    for i, q in enumerate(CT_SAMPLE_QUESTIONS)]
+                    qbtns = []
+                    for row_start in range(0, len(SAMPLE_QUESTIONS), 4):
+                        with gr.Row():
+                            for i, q in enumerate(SAMPLE_QUESTIONS[row_start:row_start+4], start=row_start):
+                                b = gr.Button(q, size="sm", scale=1, min_width=0, elem_id=f"qbtn-{i}")
+                                qbtns.append(b)
+                    ct_qbtns = []
+                    for row_start in range(0, len(CT_SAMPLE_QUESTIONS), 4):
+                        with gr.Row():
+                            for i, q in enumerate(CT_SAMPLE_QUESTIONS[row_start:row_start+4], start=row_start):
+                                b = gr.Button(q, size="sm", scale=1, min_width=0, elem_id=f"ctbtn-{i}")
+                                ct_qbtns.append(b)
 
         # ── Output lists ───────────────────────────────────────────────────
         PANEL = [hero_out, chart_out, signals_out, levels_out,
