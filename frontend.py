@@ -14,6 +14,7 @@ Add/Delete: instant via gr.update on pre-built tab slots
 """
 
 import logging
+import re
 import tempfile
 import requests as req_lib
 import gradio as gr
@@ -45,7 +46,33 @@ SAMPLE_QUESTIONS = [
     "Over or undervalued?",
     "What is the risk?",
     "MACD signal?",
+    "Bullish or bearish?",
+    "Where is strong resistance?",
+    "What is the trend?",
+    "Short-term price target?",
+    "Stop-loss suggestion?",
+    "Volume analysis?",
 ]
+
+CT_SAMPLE_QUESTIONS = [
+    "Latest Congress trades?",
+    "Top politician stocks?",
+    "Recent senator trades?",
+    "Who bought NVDA?",
+    "Top issuers this month?",
+    "Any TSLA Congress trades?",
+    "Which lawmakers sold recently?",
+    "Biggest Congress trade sizes?",
+    "Any AI stock trades by Congress?",
+]
+
+# Keywords that route a question to Capitol Trades instead of per-stock chat
+_CT_KEYWORDS = frozenset({
+    "politician", "congress", "senator", "representative", "lawmaker",
+    "pelosi", "capitol trades", "stock act", "capitol hill",
+    "insider", "elected", "who traded", "lawmakers", "house member",
+    "who bought", "who sold", "issuer", "trade size", "elected official",
+})
 
 # ── Backend ───────────────────────────────────────────────────────────────────
 
@@ -69,6 +96,17 @@ def _chat_api(ticker, question):
         "question": question,
         "chatbot_ctx": _chatbot_ctx.get(ticker, ""),
         "history": _chat_history.get(ticker, []),
+    }).get("response", "No response.")
+
+def _is_ct_question(q: str) -> bool:
+    """Return True if the question is about Capitol Trades / politician trading."""
+    q_l = q.lower()
+    return any(k in q_l for k in _CT_KEYWORDS)
+
+def _ct_chat_api(question: str) -> str:
+    return _api("/chat/capitol_trades", "POST", {
+        "question": question,
+        "history": _chat_history.get("__ct__", []),
     }).get("response", "No response.")
 
 # ── HTML helpers ──────────────────────────────────────────────────────────────
@@ -492,7 +530,10 @@ def build_app():
     _watchlist.extend(session.get("watchlist", list(DEFAULT_WATCHLIST)))
     saved_ref   = session.get("refresh_interval", "Off")
 
-    _blocks_kwargs = {} if _GRADIO_MAJOR >= 6 else {"css": CSS, "theme": THEME}
+    if _GRADIO_MAJOR >= 6:
+        _blocks_kwargs = {"fill_width": True}
+    else:
+        _blocks_kwargs = {"css": CSS, "theme": THEME}
     demo = gr.Blocks(title="Stocks Analysis Dashboard", **_blocks_kwargs)
 
     with demo:
@@ -531,6 +572,7 @@ def build_app():
         report_state = gr.State("")
         rep_reading  = gr.State(False)
         chat_reading = gr.State(False)
+        ct_mode_state = gr.State(False)   # True = Capitol Trades mode, False = Stock mode
 
 
         with gr.Row(elem_id="main_row"):
@@ -601,38 +643,50 @@ def build_app():
                     '<div style="color:#475569;padding:12px">'
                     'Select a tab above, then click <b>Analyze Stock</b> to analyze.</div>'
                 )
-                chart_out   = gr.HTML("")
-                signals_out = gr.HTML()
-                levels_out  = gr.HTML()
-                fund_out    = gr.HTML()
-                sent_out    = gr.HTML()
+                chart_out   = gr.HTML(
+                    '<div style="min-height:480px;background:#0f172a;border-radius:8px;'
+                    'border:1px solid #1e293b;display:flex;align-items:center;'
+                    'justify-content:center">'
+                    '<span style="color:#334155;font-size:13px">'
+                    'Chart will appear after analysis</span></div>'
+                )
+                signals_out = gr.HTML('<div style="min-height:60px"></div>')
+                levels_out  = gr.HTML('<div style="min-height:60px"></div>')
+                fund_out    = gr.HTML('<div style="min-height:60px"></div>')
+                sent_out    = gr.HTML('<div style="min-height:60px"></div>')
 
                 with gr.Accordion("AI Analysis Report", open=False):
                     report_out   = gr.Markdown("*Run analysis to see AI report.*")
-                    rd_rep       = gr.Button("▶ READ", size="sm", variant="secondary")
+                    rd_rep       = gr.Button("▶ READ", size="sm", variant="secondary", elem_id="rd-rep-btn")
                     rep_tts_text = gr.Textbox(value="", elem_id="rep_tts_buf", show_label=False, visible=True)
 
-                with gr.Accordion("Ask About This Stock", open=False):
+                with gr.Accordion("Ask a Question", open=False):
                     _chat_kwargs = {} if _GRADIO_MAJOR >= 6 else {"type": "messages"}
-                    chatbot  = gr.Chatbot(height=240, show_label=False, **_chat_kwargs)
+                    chatbot  = gr.Chatbot(height=240, show_label=False, elem_id="chatbot-box", **_chat_kwargs)
+                    with gr.Row():
+                        cpy_btn = gr.Button("📋 Copy Chat",  size="sm", scale=1, elem_id="cpy-btn")
+                        clr_btn = gr.Button("🗑 Clear Chat", size="sm", scale=1, elem_id="clr-btn")
                     with gr.Row():
                         chat_in = gr.Textbox(
-                            placeholder="Ask a question...",
+                            placeholder="Ask about this stock or Congress trades (e.g. 'Latest senator trades?')",
                             show_label=False, scale=5,
                         )
-                        rd_chat = gr.Button("▶ READ", size="sm", scale=1)
-                        snd_btn = gr.Button("Send", variant="primary", size="sm", scale=1)
-                    gr.HTML('<div style="color:#64748b;font-size:10px;margin:3px 0">'
-                            'Quick questions (auto-submit):</div>')
-                    with gr.Row():
-                        qbtns = [gr.Button(q, size="sm", min_width=0)
-                                 for q in SAMPLE_QUESTIONS]
-                    with gr.Row():
-                        cpy_btn = gr.Button("Copy Chat", size="sm", variant="secondary")
-                        clr_btn = gr.Button("Clear Chat", size="sm", variant="stop")
+                        rd_chat = gr.Button("▶ READ", size="sm", scale=1, elem_id="rd-chat-btn")
+                        snd_btn = gr.Button("Send",    variant="primary", size="sm", scale=1, elem_id="snd-btn")
                     cpy_out       = gr.HTML("")
                     copy_buf      = gr.Textbox(value="", elem_id="chat_copy_buf",  visible=True, show_label=False)
                     chat_tts_text = gr.Textbox(value="", elem_id="chat_tts_buf",   visible=True, show_label=False)
+                    with gr.Row():
+                        mode_btn = gr.Button(
+                            "📈 Analyzed Stock Questions", size="sm", variant="secondary",
+                            min_width=0, elem_id="mode-btn",
+                        )
+                    with gr.Row():
+                        qbtns = [gr.Button(q, size="sm", min_width=0, elem_id=f"qbtn-{i}")
+                                 for i, q in enumerate(SAMPLE_QUESTIONS)]
+                    with gr.Row():
+                        ct_qbtns = [gr.Button(q, size="sm", min_width=0, elem_id=f"ctbtn-{i}")
+                                    for i, q in enumerate(CT_SAMPLE_QUESTIONS)]
 
         # ── Output lists ───────────────────────────────────────────────────
         PANEL = [hero_out, chart_out, signals_out, levels_out,
@@ -802,6 +856,119 @@ def build_app():
             }
             setTimeout(function() { setInterval(tick, 2000); }, 3000);
         }"""
+        # ── JS: full-width fix + persistent button styling ──
+        # KEY BUGS FIXED vs prior version:
+        #   1. MutationObserver was watching the <button> element directly — but Gradio 6
+        #      *replaces* the entire <button> node on each update, so the observer was
+        #      watching a detached dead node.  Now we watch the wrapper div (elem_id holder).
+        #   2. Buttons inside closed accordions (open=False) are not in the DOM at page-load,
+        #      so one-shot init() found nothing.  Now a persistent 500 ms poll + debounced
+        #      body MutationObserver handles late-rendered elements.
+        _JS_FIX_HEIGHT = """() => {
+            /* ── colour palette ── */
+            var BLUE    = 'linear-gradient(135deg,#1d4ed8,#3b82f6)';
+            var BLUE_H  = 'linear-gradient(135deg,#2563eb,#60a5fa)';
+            var BLUE_B  = '2px solid #60a5fa';
+            var ORA     = 'linear-gradient(135deg,#c2410c,#ea580c)';
+            var ORA_H   = 'linear-gradient(135deg,#9a3412,#f97316)';
+            var ORA_B   = '2px solid #fb923c';
+            var GREEN   = 'linear-gradient(135deg,#065f46,#10b981)';
+            var GREEN_H = 'linear-gradient(135deg,#047857,#34d399)';
+            var TEAL    = 'linear-gradient(135deg,#0e7490,#06b6d4)';
+            var TEAL_H  = 'linear-gradient(135deg,#0891b2,#22d3ee)';
+            var RED     = 'linear-gradient(135deg,#991b1b,#ef4444)';
+            var RED_H   = 'linear-gradient(135deg,#b91c1c,#f87171)';
+            var IND     = 'linear-gradient(135deg,#4338ca,#818cf8)';
+            var IND_H   = 'linear-gradient(135deg,#6366f1,#a5b4fc)';
+            var AMB     = 'linear-gradient(135deg,#b45309,#f59e0b)';
+            var AMB_H   = 'linear-gradient(135deg,#d97706,#fbbf24)';
+
+            /* ── helpers ── */
+            function btnOf(id) {
+                var w = document.getElementById(id);
+                if (!w) return null;
+                return w.tagName === 'BUTTON' ? w : w.querySelector('button');
+            }
+            function s(btn, bg, border, hBg) {
+                if (!btn) return;
+                btn.style.background   = bg;
+                btn.style.border       = border;
+                btn.style.color        = '#fff';
+                btn.style.fontWeight   = '700';
+                btn.style.borderRadius = '6px';
+                btn.onmouseenter = function() { this.style.background = hBg; };
+                btn.onmouseleave = function() { this.style.background = bg;  };
+            }
+
+            /* ── apply all button colours based on current DOM text ── */
+            function applyAll() {
+                /* READ buttons: blue while idle, orange while STOP */
+                ['rd-rep-btn','rd-chat-btn'].forEach(function(id) {
+                    var b = btnOf(id);
+                    if (!b) return;
+                    var stop = b.textContent.indexOf('STOP') !== -1 ||
+                               b.textContent.indexOf('\u23f9') !== -1;
+                    s(b, stop ? ORA : BLUE, stop ? ORA_B : BLUE_B, stop ? ORA_H : BLUE_H);
+                });
+                /* Mode button: blue = Stock, orange = CT Mode ON */
+                var mb = btnOf('mode-btn');
+                if (mb) {
+                    var ct = mb.textContent.indexOf('Politicians') !== -1;
+                    s(mb, ct ? AMB : IND, ct ? '1px solid #fbbf24' : '1px solid #6366f1', ct ? AMB_H : IND_H);
+                }
+                /* Send / Copy / Clear */
+                s(btnOf('snd-btn'), GREEN, '2px solid #34d399', GREEN_H);
+                s(btnOf('cpy-btn'), TEAL,  'none',              TEAL_H);
+                s(btnOf('clr-btn'), RED,   'none',              RED_H);
+                /* Stock sample-question buttons — indigo */
+                for (var si = 0; si < 20; si++) {
+                    s(btnOf('qbtn-' + si), IND, '1px solid #6366f1', IND_H);
+                }
+                /* Capitol Trades question buttons — amber */
+                for (var ci = 0; ci < 20; ci++) {
+                    s(btnOf('ctbtn-' + ci), AMB, '1px solid #fbbf24', AMB_H);
+                }
+            }
+
+            /* ── full-width layout fix ── */
+            function applyWidth() {
+                ['gradio-app','.gradio-container','.app','.main','body','html']
+                    .forEach(function(sel) {
+                        var el = document.querySelector(sel);
+                        if (!el) return;
+                        el.style.minHeight = '100vh';
+                        el.style.width     = '100%';
+                        el.style.maxWidth  = '100%';
+                        el.style.boxSizing = 'border-box';
+                    });
+            }
+
+            /* ── debounced body observer — catches accordion open + Gradio re-renders ──
+               Observing document.body is intentionally broad: the debounce (50 ms) keeps
+               it cheap; it fires applyAll at most ~20×/sec regardless of mutation rate.  */
+            var _dTimer = null;
+            var bodyObs = new MutationObserver(function() {
+                if (_dTimer) clearTimeout(_dTimer);
+                _dTimer = setTimeout(applyAll, 10);
+            });
+            bodyObs.observe(document.body, {childList: true, subtree: true, characterData: true});
+
+            /* ── persistent poll: keeps re-styling for 30 s after load ──
+               Handles accordions that open after the initial body-observer window.  */
+            var _pollN = 0;
+            var _pollId = setInterval(function() {
+                applyAll();
+                if (++_pollN >= 60) clearInterval(_pollId);
+            }, 500);
+
+            /* ── kick off ── */
+            applyWidth();
+            applyAll();
+            setTimeout(applyAll, 300);
+            setTimeout(applyAll, 800);
+        }"""
+        demo.load(fn=None, js=_JS_FIX_HEIGHT)
+
         demo.load(fn=None, js=_JS_AUTO_REFRESH)
 
         # Unlock Web Speech API for mobile (iOS Safari blocks async speechSynthesis
@@ -927,26 +1094,47 @@ def build_app():
 
         def toggle_rep_tts(sym, is_reading):
             if is_reading:
-                return "", False, gr.update(value="▶ READ")
+                return "", False, gr.update(value="▶ READ", variant="secondary")
             ticker = (sym or "").strip().upper()
             summary = _analysis_cache.get(ticker, {}).get("llm_summary", "")
             text = f"{ticker} AI Analysis. {summary}" if summary else ""
             if not text:
-                return "", False, gr.update(value="▶ READ")
-            return text, True, gr.update(value="⏹ STOP")
+                return "", False, gr.update(value="▶ READ", variant="secondary")
+            return text, True, gr.update(value="⏹ STOP", variant="stop")
 
         (rd_rep.click(fn=toggle_rep_tts, inputs=[cur_sym, rep_reading],
                       outputs=[rep_tts_text, rep_reading, rd_rep])
                .then(fn=None, js=_JS_SPEAK_REP))
 
         # ── Chat ───────────────────────────────────────────────────────────
-        def do_chat(question, history, ticker):
+        def do_chat(question, history, ticker, ct_mode=False):
             q = (question or "").strip()
-            if not q or not ticker:
+            if not q:
                 return history or [], ""
-            answer = _chat_api(ticker, q)
+            # Route to Capitol Trades if mode is forced on OR keyword matches
+            if ct_mode or _is_ct_question(q):
+                answer  = _ct_chat_api(q)
+                labeled = f"**[Capitol Trades]** {answer}"
+                new_h   = list(history or []) + [
+                    {"role": "user",      "content": q},
+                    {"role": "assistant", "content": labeled},
+                ]
+                _chat_history.setdefault("__ct__", [])
+                _chat_history["__ct__"].append([q, labeled])
+                if len(_chat_history["__ct__"]) > MAX_CHATBOT_MEMORY:
+                    _chat_history["__ct__"] = _chat_history["__ct__"][-MAX_CHATBOT_MEMORY:]
+                return new_h, ""
+            # Per-stock routing
+            if not ticker:
+                return history or [], ""
+            answer  = _chat_api(ticker, q)
+            # Strip leading "TICKER: " / "TICKER — " the LLM sometimes adds to avoid duplication
+            answer = re.sub(
+                rf'^\**\[?{re.escape(ticker.strip().upper())}\]?\**[\s:,\-–—]+',
+                '', answer, flags=re.IGNORECASE,
+            ).strip()
             labeled = f"**[{ticker.strip().upper()}]** {answer}"
-            new_h = list(history or []) + [
+            new_h   = list(history or []) + [
                 {"role": "user",      "content": q},
                 {"role": "assistant", "content": labeled},
             ]
@@ -956,21 +1144,65 @@ def build_app():
                 _chat_history[ticker] = _chat_history[ticker][-MAX_CHATBOT_MEMORY:]
             return new_h, ""
 
-        snd_btn.click(fn=do_chat, inputs=[chat_in, chatbot, cur_sym],
-                      outputs=[chatbot, chat_in])
-        chat_in.submit(fn=do_chat, inputs=[chat_in, chatbot, cur_sym],
-                       outputs=[chatbot, chat_in])
+        _JS_SCROLL_CHAT = """() => {
+            function scrollChatToBottom() {
+                // Locate chatbot by elem_id first, then fall back to class/role
+                var host = document.getElementById('chatbot-box')
+                         || document.querySelector('[id*="chatbot"]')
+                         || document.querySelector('[class*="chatbot"]');
+                if (!host) return;
+                // Walk every descendant — scroll whichever element actually overflows
+                var nodes = host.querySelectorAll('*');
+                for (var i = 0; i < nodes.length; i++) {
+                    var el = nodes[i];
+                    if (el.scrollHeight > el.clientHeight + 4) {
+                        el.scrollTop = el.scrollHeight;
+                    }
+                }
+                // Also attempt on the host root itself
+                host.scrollTop = host.scrollHeight;
+            }
+            // Fire at 150 ms (after Gradio DOM update) and again at 700 ms
+            // (safety net for slow network / large responses)
+            setTimeout(scrollChatToBottom, 150);
+            setTimeout(scrollChatToBottom, 700);
+        }"""
 
-        # Sample questions — auto-submit on click
+        (snd_btn.click(fn=do_chat, inputs=[chat_in, chatbot, cur_sym, ct_mode_state],
+                       outputs=[chatbot, chat_in])
+                .then(fn=None, js=_JS_SCROLL_CHAT))
+        (chat_in.submit(fn=do_chat, inputs=[chat_in, chatbot, cur_sym, ct_mode_state],
+                        outputs=[chatbot, chat_in])
+                .then(fn=None, js=_JS_SCROLL_CHAT))
+
+        # Stock sample questions — auto-submit on click
         for q, btn in zip(SAMPLE_QUESTIONS, qbtns):
-            def _qfn(history, ticker, question=q):
-                return do_chat(question, history, ticker)
-            btn.click(fn=_qfn, inputs=[chatbot, cur_sym], outputs=[chatbot, chat_in])
+            def _qfn(history, ticker, ct_mode, question=q):
+                return do_chat(question, history, ticker, ct_mode)
+            (btn.click(fn=_qfn, inputs=[chatbot, cur_sym, ct_mode_state], outputs=[chatbot, chat_in])
+                .then(fn=None, js=_JS_SCROLL_CHAT))
+
+        # Capitol Trades quick questions — auto-submit on click
+        for q, btn in zip(CT_SAMPLE_QUESTIONS, ct_qbtns):
+            def _ct_qfn(history, ticker, ct_mode, question=q):
+                return do_chat(question, history, ticker, ct_mode)
+            (btn.click(fn=_ct_qfn, inputs=[chatbot, cur_sym, ct_mode_state], outputs=[chatbot, chat_in])
+                .then(fn=None, js=_JS_SCROLL_CHAT))
+
+        # Mode toggle
+        def toggle_ct_mode(current):
+            new = not current
+            if new:
+                return new, gr.update(value="🏛 Politicians Trade Questions", variant="primary")
+            return new, gr.update(value="📈 Analyzed Stock Questions", variant="secondary")
+
+        mode_btn.click(fn=toggle_ct_mode, inputs=[ct_mode_state],
+                       outputs=[ct_mode_state, mode_btn])
 
         # Chat READ (toggle)
         def toggle_chat_tts(history, is_reading):
             if is_reading:
-                return "", False, gr.update(value="▶ READ")
+                return "", False, gr.update(value="▶ READ", variant="secondary")
             text = ""
             for msg in reversed(history or []):
                 if isinstance(msg, dict) and msg.get("role") == "assistant":
@@ -980,8 +1212,8 @@ def build_app():
                     text = _extract_msg_text(msg[1] or "")
                     break
             if not text:
-                return "", False, gr.update(value="▶ READ")
-            return text, True, gr.update(value="⏹ STOP")
+                return "", False, gr.update(value="▶ READ", variant="secondary")
+            return text, True, gr.update(value="⏹ STOP", variant="stop")
 
         (rd_chat.click(fn=toggle_chat_tts, inputs=[chatbot, chat_reading],
                        outputs=[chat_tts_text, chat_reading, rd_chat])
@@ -1039,6 +1271,79 @@ div.gradio-container {
     font-family: 'Segoe UI', system-ui, sans-serif !important;
     max-width: 1440px !important;
     margin: 0 auto !important;
+    min-height: 100vh !important;
+}
+
+/* ── Prevent layout collapse before first analysis ─────────────────────────── */
+#main_row,
+div#main_row {
+    min-height: 720px !important;
+    align-items: stretch !important;
+}
+#main_col,
+div#main_col {
+    min-height: 680px !important;
+}
+
+/* ── Mode toggle button ─────────────────────────────────────────────────────── */
+/* Stock Mode (default / secondary) — blue */
+#mode-btn button,
+div#mode-btn button {
+    background: linear-gradient(135deg, #1d4ed8, #3b82f6) !important;
+    border: 2px solid #60a5fa !important;
+    color: #fff !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.5px !important;
+    min-width: 150px !important;
+    transition: background .2s, border-color .2s !important;
+}
+#mode-btn button:hover,
+div#mode-btn button:hover {
+    background: linear-gradient(135deg, #2563eb, #60a5fa) !important;
+}
+/* CT Mode ON — Gradio sets variant="primary", adds .primary or [data-variant~=primary] */
+#mode-btn button.primary,
+#mode-btn button[class*="primary"],
+#mode-btn button[data-variant="primary"],
+div#mode-btn button.primary,
+div#mode-btn button[class*="primary"],
+div#mode-btn button[data-variant="primary"] {
+    background: linear-gradient(135deg, #c2410c, #ea580c) !important;
+    border: 2px solid #fb923c !important;
+    color: #fff !important;
+}
+#mode-btn button.primary:hover,
+div#mode-btn button.primary:hover {
+    background: linear-gradient(135deg, #9a3412, #f97316) !important;
+}
+
+/* ── READ / STOP buttons ────────────────────────────────────────────────────── */
+/* Default (▶ READ) — blue */
+#rd-rep-btn button,
+div#rd-rep-btn button,
+#rd-chat-btn button,
+div#rd-chat-btn button {
+    background: linear-gradient(135deg, #1d4ed8, #3b82f6) !important;
+    border: 1px solid #60a5fa !important;
+    color: #fff !important;
+    font-weight: 600 !important;
+}
+#rd-rep-btn button:hover,
+div#rd-rep-btn button:hover,
+#rd-chat-btn button:hover,
+div#rd-chat-btn button:hover {
+    background: linear-gradient(135deg, #2563eb, #60a5fa) !important;
+}
+/* STOP state — variant="stop" adds .stop class — orange */
+#rd-rep-btn button.stop,
+#rd-rep-btn button[class*="stop"],
+div#rd-rep-btn button.stop,
+#rd-chat-btn button.stop,
+#rd-chat-btn button[class*="stop"],
+div#rd-chat-btn button.stop {
+    background: linear-gradient(135deg, #c2410c, #ea580c) !important;
+    border: 1px solid #fb923c !important;
+    color: #fff !important;
 }
 
 /* ── Hide Gradio footer ─────────────────────────────────────────────────────── */
@@ -1209,6 +1514,32 @@ div#save-btn button {
 #save-btn button:hover,
 div#save-btn button:hover {
     background: linear-gradient(135deg, #6d28d9, #c084fc) !important;
+}
+
+/* ── Copy Chat button (teal) ────────────────────────────────────────────────── */
+#cpy-btn button,
+div#cpy-btn button {
+    background: linear-gradient(135deg, #0e7490, #06b6d4) !important;
+    border: none !important;
+    color: #fff !important;
+    font-weight: 600 !important;
+}
+#cpy-btn button:hover,
+div#cpy-btn button:hover {
+    background: linear-gradient(135deg, #0891b2, #22d3ee) !important;
+}
+
+/* ── Clear Chat button (red) ────────────────────────────────────────────────── */
+#clr-btn button,
+div#clr-btn button {
+    background: linear-gradient(135deg, #991b1b, #ef4444) !important;
+    border: none !important;
+    color: #fff !important;
+    font-weight: 600 !important;
+}
+#clr-btn button:hover,
+div#clr-btn button:hover {
+    background: linear-gradient(135deg, #b91c1c, #f87171) !important;
 }
 
 /* ── Watchlist radio ────────────────────────────────────────────────────────── */

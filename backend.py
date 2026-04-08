@@ -53,6 +53,10 @@ class LLMChatRequest(BaseModel):
     question:      str
     history:       list = []
 
+class CapitolTradesChatRequest(BaseModel):
+    question: str
+    history:  list = []
+
 # ─── Cache (simple in-memory, per ticker) ─────────────────────────────────────
 _analysis_cache: dict = {}
 _charts_cache:   dict = {}   # ticker → {tf: base64_png}
@@ -163,6 +167,161 @@ def chat(req: ChatRequest):
         logger.error(f"Chat error: {e}")
 
     return {"response": "I'm unable to answer right now. Please check the LLM configuration."}
+
+
+# ── Capitol Trades helpers ────────────────────────────────────────────────────
+
+def _format_ct_trades(trades: list) -> str:
+    lines = []
+    for t in trades:
+        lines.append(
+            f"- {t['politician'][:45]} | {t['issuer'][:30]} "
+            f"| {t['type'].upper()} | {t['size']} | {t['trade_date']}"
+        )
+    return "\n".join(lines) if lines else "No trades found."
+
+
+def _format_ct_issuers(issuers: list) -> str:
+    lines = []
+    for i in issuers:
+        lines.append(
+            f"- {i['name_ticker'][:40]} | Volume: {i['total_volume']} "
+            f"| Trades: {i['trade_count']} | Politicians: {i['politician_count']}"
+        )
+    return "\n".join(lines) if lines else "No issuers found."
+
+
+def _format_ct_politicians(politicians: list) -> str:
+    lines = []
+    for p in politicians:
+        lines.append(
+            f"- {p['name_info'][:55]} "
+            f"| Trades: {p['trade_count']} | Volume: {p['total_volume']}"
+        )
+    return "\n".join(lines) if lines else "No politicians found."
+
+
+@app.post("/chat/capitol_trades")
+def chat_capitol_trades(req: CapitolTradesChatRequest):
+    """Chat endpoint that fetches live Capitol Trades data then queries the LLM."""
+    import re as _re
+    from capitol_trades_mcp import (
+        get_recent_trades, get_trades_by_ticker, get_top_issuers,
+        get_politicians, get_trade_summary_stats, get_latest_insights,
+    )
+
+    q = req.question
+    q_lower = q.lower()
+
+    # Detect an explicit ticker symbol in the question (2-5 uppercase letters)
+    tickers_in_q = _re.findall(r'\b([A-Z]{2,5})\b', q)
+
+    data_context = ""
+    try:
+        if tickers_in_q and any(
+            w in q_lower for w in ["trade", "bought", "sold", "buy", "sell", "politician", "congress"]
+        ):
+            for t in tickers_in_q[:1]:
+                result = get_trades_by_ticker(t, page_size=10)
+                if "error" not in result:
+                    data_context = (
+                        f"Recent Capitol Trades data for {t}:\n"
+                        + _format_ct_trades(result["trades"][:10])
+                    )
+                    break
+
+        if not data_context and any(
+            w in q_lower for w in ["top", "most traded", "popular", "active", "issuer", "stocks"]
+        ):
+            result = get_top_issuers(page_size=10)
+            data_context = "Top issuers traded by politicians:\n" + _format_ct_issuers(result["issuers"])
+
+        if not data_context and any(
+            w in q_lower for w in ["politician", "congress", "senator", "representative", "lawmaker", "who"]
+        ):
+            result = get_politicians(page_size=20)
+            data_context = "Currently tracked politicians:\n" + _format_ct_politicians(result["politicians"])
+
+        if not data_context and any(
+            w in q_lower for w in ["stat", "total", "how many", "summary", "overview", "volume"]
+        ):
+            s = get_trade_summary_stats()
+            data_context = (
+                f"Capitol Trades statistics:\n"
+                f"Total trades: {s.get('total_trades')}\n"
+                f"Total volume: ${s.get('total_volume')}\n"
+                f"Politicians tracked: {s.get('total_politicians')}\n"
+                f"Issuers: {s.get('total_issuers')}"
+            )
+
+        if not data_context and any(
+            w in q_lower for w in ["news", "insight", "article", "report", "latest"]
+        ):
+            result = get_latest_insights()
+            data_context = "Latest Capitol Trades insights:\n" + "\n".join(
+                f"- {a['title']}" for a in result.get("articles", [])[:8]
+            )
+
+        if not data_context:
+            result = get_recent_trades(page_size=10)
+            data_context = "Recent politician trades:\n" + _format_ct_trades(result["trades"][:10])
+
+    except Exception as e:
+        logger.error(f"Capitol Trades fetch error: {e}")
+        data_context = "Could not fetch data from Capitol Trades at this time."
+
+    system = (
+        "You are a financial intelligence assistant specializing in US politician stock "
+        "trade disclosures reported under the STOCK Act via Capitol Trades "
+        "(capitoltrades.com). Answer the user's question concisely and helpfully using "
+        "the real-time trade data provided. When listing trades, highlight notable "
+        "patterns (large sizes, repeated buys/sells, sector clusters)."
+    )
+    user_msg = f"{q}\n\nRelevant Capitol Trades data:\n{data_context}"
+
+    messages = []
+    for pair in req.history[-6:]:
+        if isinstance(pair, (list, tuple)) and len(pair) == 2:
+            messages.append({"role": "user",      "content": pair[0]})
+            messages.append({"role": "assistant", "content": pair[1]})
+    messages.append({"role": "user", "content": user_msg})
+
+    try:
+        from config import LLM_PROVIDER, GROQ_API_KEY, GROQ_MODEL, OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT, HF_MODEL
+        if LLM_PROVIDER == "groq":
+            from groq import Groq
+            client = Groq(api_key=GROQ_API_KEY)
+            resp = client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[{"role": "system", "content": system}] + messages,
+                max_tokens=800,
+            )
+            return {"response": resp.choices[0].message.content.strip()}
+        elif LLM_PROVIDER == "ollama":
+            import requests as _req
+            prompt = f"SYSTEM: {system}\n" + "\n".join(
+                ("USER" if m["role"] == "user" else "ASSISTANT") + ": " + m["content"]
+                for m in messages
+            )
+            r = _req.post(
+                f"{OLLAMA_BASE_URL}/api/generate",
+                json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+                timeout=OLLAMA_TIMEOUT,
+            )
+            if r.status_code == 200:
+                return {"response": r.json().get("response", "").strip()}
+        elif LLM_PROVIDER == "hf":
+            from huggingface_hub import InferenceClient
+            client = InferenceClient(model=HF_MODEL)
+            resp = client.chat_completion(
+                messages=[{"role": "system", "content": system}] + messages,
+                max_tokens=800,
+            )
+            return {"response": resp.choices[0].message.content.strip()}
+    except Exception as e:
+        logger.error(f"Capitol Trades LLM error: {e}")
+
+    return {"response": "Unable to answer Capitol Trades questions right now."}
 
 
 @app.get("/session")

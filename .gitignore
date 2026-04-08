@@ -15,6 +15,7 @@ wheels/
 *.txt.secret
 .GROQ_API_KEY.txt
 .HF_TOKEN.txt
+_secrets/
 
 # macOS
 .DS_Store
