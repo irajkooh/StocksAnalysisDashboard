@@ -1123,7 +1123,12 @@ def build_app():
             # Route to Capitol Trades if mode is forced on OR keyword matches
             if ct_mode or _is_ct_question(q):
                 answer  = _ct_chat_api(q)
-                labeled = f"**[Capitol Trades]** {answer}"
+                # Strip any leading [Capitol Trades] / Capitol Trades: the LLM may echo
+                answer = re.sub(
+                    r'^\**\[?Capitol\s+Trades\]?\**[\s:,\-–—]*',
+                    '', answer, flags=re.IGNORECASE,
+                ).strip()
+                labeled = f"**[Capitol Trades]:**\n{answer}"
                 new_h   = list(history or []) + [
                     {"role": "user",      "content": q},
                     {"role": "assistant", "content": labeled},
