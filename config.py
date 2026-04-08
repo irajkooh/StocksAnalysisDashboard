@@ -48,11 +48,11 @@ OLLAMA_MODEL       = os.getenv("OLLAMA_MODEL",    "llama3.2:3b")
 OLLAMA_TIMEOUT     = 120          # seconds
 
 GROQ_API_KEY       = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL         = "llama-3.1-8b-instant"       # free tier: 500K TPD (vs 100K for 70b)
+GROQ_MODEL         = "llama-3.1-8b-instant"            # free: 500K tokens/day via Groq
 
-HF_MODEL           = "meta-llama/Llama-3.2-3B-Instruct"  # free LLaMA — rate-limit fallback
+HF_MODEL           = "meta-llama/Llama-3.2-3B-Instruct"  # free with HF_TOKEN — Groq rate-limit fallback
 
-# Local → Ollama; HF Spaces + Groq key → Groq; HF Spaces without Groq → HF Inference API
+# Local → Ollama; HF Spaces + Groq key → Groq (Llama 3.1 8B); fallback → HF (Llama 3.2 3B)
 if IS_HF_SPACE:
     LLM_PROVIDER = "groq" if GROQ_API_KEY else "hf"
 else:

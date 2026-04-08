@@ -27,8 +27,18 @@ Multi-tab AI-powered stock analysis dashboard with LangGraph multi-agent system.
 - Session persistence (save/load JSON)
 - Watchlist sidebar + auto-refresh
 
+## LLM Setup
+| Environment | Model | Notes |
+|---|---|---|
+| HF Spaces (primary) | Groq `llama-3.1-8b-instant` | Free: 500K tokens/day — requires `GROQ_API_KEY` secret |
+| HF Spaces (fallback) | HF `meta-llama/Llama-3.2-3B-Instruct` | Free with `HF_TOKEN` — auto-used when Groq rate-limit hit |
+| Local | Ollama `llama3.2:3b` | Runs fully offline |
+
 ## Environment Variables (set in HF Spaces Secrets)
 | Variable | Description |
 |---|---|
-| `GROQ_API_KEY` | Groq API key — primary LLM (`llama-3.1-8b-instant`, 500K tokens/day free) |
-| `HF_TOKEN` | HuggingFace token — fallback LLM when Groq rate-limits (`Llama-3.2-3B-Instruct`) |
+| `GROQ_API_KEY` | **Required** — Groq API key for Llama 3.1 8B (free at console.groq.com) |
+| `HF_TOKEN` | **Required** — HuggingFace token for Llama 3.2 3B fallback |
+| `NEWS_API_KEY` | NewsAPI key for headlines |
+| `REDDIT_CLIENT_ID` | Reddit app client ID |
+| `REDDIT_CLIENT_SECRET` | Reddit app client secret |
