@@ -1291,11 +1291,12 @@ def build_app():
             ref  = sess.get("refresh_interval", "Off")
             secs = str(REFRESH_OPTIONS.get(ref, 0))
             first_sym = syms[0] if syms else ""
-            return [syms, ref, secs, first_sym] + list(_tab_updates(syms)) + list(_own_chk_updates(syms))
+            wl_update = gr.update(choices=list(_watchlist), value=None)
+            return [syms, ref, secs, first_sym, wl_update] + list(_tab_updates(syms)) + list(_own_chk_updates(syms))
 
         demo.load(
             fn=_on_page_load,
-            outputs=[syms_state, ref_dd, ar_secs, cur_sym] + tab_objs + own_chk_list,
+            outputs=[syms_state, ref_dd, ar_secs, cur_sym, wl_radio] + tab_objs + own_chk_list,
         )
 
         # ── Watchlist ──────────────────────────────────────────────────────
