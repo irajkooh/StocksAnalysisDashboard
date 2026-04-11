@@ -13,6 +13,8 @@ Gradio 3.50.2 API used here:
 Add/Delete: instant via gr.update on pre-built tab slots
 """
 
+import asyncio
+import asyncio
 import logging
 import re
 import tempfile
@@ -1400,20 +1402,29 @@ def build_app():
                .then(fn=None, js=_JS_SPEAK_REP))
 
         # ── Chat ───────────────────────────────────────────────────────────
-        def do_chat(question, history, ticker, ct_mode=False):
+        async def do_chat(question, history, ticker, ct_mode=False):
+            """Async generator — yields a thinking indicator first, then the real answer.
+            This keeps the Gradio SSE stream alive and prevents BodyStreamBuffer abort."""
             q = (question or "").strip()
             if not q:
-                return history or [], ""
+                yield history or [], ""
+                return
+            base_h = list(history or [])
+            # Immediately push a thinking indicator so SSE stays alive
+            yield base_h + [
+                {"role": "user",      "content": q},
+                {"role": "assistant", "content": "_Thinking…_"},
+            ], ""
             # Route to Capitol Trades if mode is forced on OR keyword matches
             if ct_mode or _is_ct_question(q):
-                answer  = _ct_chat_api(q)
+                answer  = await asyncio.to_thread(_ct_chat_api, q)
                 # Strip any leading [Capitol Trades] / Capitol Trades: the LLM may echo
                 answer = re.sub(
                     r'^\**\[?Capitol\s+Trades\]?\**[\s:,\-–—]*',
                     '', answer, flags=re.IGNORECASE,
                 ).strip()
                 labeled = f"**[Capitol Trades]:**\n{answer}"
-                new_h   = list(history or []) + [
+                new_h   = base_h + [
                     {"role": "user",      "content": q},
                     {"role": "assistant", "content": labeled},
                 ]
@@ -1421,18 +1432,20 @@ def build_app():
                 _chat_history["__ct__"].append([q, labeled])
                 if len(_chat_history["__ct__"]) > MAX_CHATBOT_MEMORY:
                     _chat_history["__ct__"] = _chat_history["__ct__"][-MAX_CHATBOT_MEMORY:]
-                return new_h, ""
+                yield new_h, ""
+                return
             # Per-stock routing
             if not ticker:
-                return history or [], ""
-            answer  = _chat_api(ticker, q)
+                yield history or [], ""
+                return
+            answer  = await asyncio.to_thread(_chat_api, ticker, q)
             # Strip leading "TICKER: " / "TICKER — " the LLM sometimes adds to avoid duplication
             answer = re.sub(
                 rf'^\**\[?{re.escape(ticker.strip().upper())}\]?\**[\s:,\-–—]+',
                 '', answer, flags=re.IGNORECASE,
             ).strip()
             labeled = f"**[{ticker.strip().upper()}]** {answer}"
-            new_h   = list(history or []) + [
+            new_h   = base_h + [
                 {"role": "user",      "content": q},
                 {"role": "assistant", "content": labeled},
             ]
@@ -1440,7 +1453,7 @@ def build_app():
             _chat_history[ticker].append([q, labeled])
             if len(_chat_history[ticker]) > MAX_CHATBOT_MEMORY:
                 _chat_history[ticker] = _chat_history[ticker][-MAX_CHATBOT_MEMORY:]
-            return new_h, ""
+            yield new_h, ""
 
         _JS_SCROLL_CHAT = """() => {
             function scrollChatToBottom() {
@@ -1475,15 +1488,17 @@ def build_app():
 
         # Stock sample questions — auto-submit on click
         for q, btn in zip(SAMPLE_QUESTIONS, qbtns):
-            def _qfn(history, ticker, ct_mode, question=q):
-                return do_chat(question, history, ticker, ct_mode)
+            async def _qfn(history, ticker, ct_mode, question=q):
+                async for state in do_chat(question, history, ticker, ct_mode):
+                    yield state
             (btn.click(fn=_qfn, inputs=[chatbot, cur_sym, ct_mode_state], outputs=[chatbot, chat_in])
                 .then(fn=None, js=_JS_SCROLL_CHAT))
 
         # Capitol Trades quick questions — auto-submit on click
         for q, btn in zip(CT_SAMPLE_QUESTIONS, ct_qbtns):
-            def _ct_qfn(history, ticker, ct_mode, question=q):
-                return do_chat(question, history, ticker, ct_mode)
+            async def _ct_qfn(history, ticker, ct_mode, question=q):
+                async for state in do_chat(question, history, ticker, ct_mode):
+                    yield state
             (btn.click(fn=_ct_qfn, inputs=[chatbot, cur_sym, ct_mode_state], outputs=[chatbot, chat_in])
                 .then(fn=None, js=_JS_SCROLL_CHAT))
 
