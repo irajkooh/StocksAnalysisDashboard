@@ -8,7 +8,7 @@ import json
 import logging
 from typing import Dict, Tuple
 from agents.state import AnalysisState
-from config import (
+from utils.config import (
     LLM_PROVIDER, OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT,
     GROQ_API_KEY, GROQ_MODEL, HF_TOKEN, HF_MODEL,
     RSI_OVERSOLD, RSI_OVERBOUGHT, UNDERVALUED_THRESHOLD, OVERVALUED_THRESHOLD

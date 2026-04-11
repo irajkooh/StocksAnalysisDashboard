@@ -7,14 +7,15 @@ import os
 from pathlib import Path
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
-ROOT_DIR      = Path(__file__).parent
+ROOT_DIR      = Path(__file__).parent.parent
+UTILS_DIR     = Path(__file__).parent
 STATIC_DIR    = ROOT_DIR / "static"
 
 def _resolve_session_file() -> Path:
     """Return a writable path for session.json.
     On HF Spaces the git-tracked app dir may be read-only for committed files,
     so fall back to /tmp if the canonical path is not writable."""
-    canonical = ROOT_DIR / "session.json"
+    canonical = UTILS_DIR / "session.json"
     try:
         # Quick write test (won't overwrite — just checks permissions)
         test = canonical.with_suffix(".write_test")

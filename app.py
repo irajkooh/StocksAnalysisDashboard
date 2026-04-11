@@ -205,7 +205,7 @@ def start_keep_alive_scheduler(space_url: str):
 
 def start_backend():
     import uvicorn
-    from config import BACKEND_PORT
+    from utils.config import BACKEND_PORT
     logger.info(f"FastAPI backend binding on port {BACKEND_PORT}…")
     uvicorn.run(
         "backend:app",
@@ -219,7 +219,7 @@ def start_backend():
 def launch_frontend():
     """Must be called from the main thread — Gradio 5 requires it."""
     import gradio as gr
-    from config import FRONTEND_PORT
+    from utils.config import FRONTEND_PORT
     from frontend import build_app, CSS, THEME
     import tempfile
     logger.info(f"Gradio frontend binding on port {FRONTEND_PORT}…")
@@ -254,7 +254,7 @@ def open_browser_when_ready(frontend_port: int):
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    from config import BACKEND_PORT, FRONTEND_PORT, IS_HF_SPACE, LLM_PROVIDER, OLLAMA_MODEL, GROQ_MODEL, HF_MODEL, HF_USER, HF_SPACE_NAME
+    from utils.config import BACKEND_PORT, FRONTEND_PORT, IS_HF_SPACE, LLM_PROVIDER, OLLAMA_MODEL, GROQ_MODEL, HF_MODEL, HF_USER, HF_SPACE_NAME
     from utils.device import get_device_label
 
     # Step 1 — clear screen

@@ -22,3 +22,4 @@ _secrets/
 
 # Runtime state
 session.json
+utils/session.json

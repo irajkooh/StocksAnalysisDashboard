@@ -4,6 +4,7 @@ import pandas as pd
 import yfinance as yf
 from agents.state import AnalysisState
 from utils.indicators import get_indicator_snapshot
+from utils.chart_builder import build_plotly_chart
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +104,12 @@ def technical_agent(state: AnalysisState) -> AnalysisState:
         info         = state.get("info", {}) or {}
         session_info = _session_info(info, df)
 
+        try:
+            chart_html = build_plotly_chart(df, ticker)
+        except Exception as ce:
+            logger.warning(f"TechnicalAgent [{ticker}]: chart build failed: {ce}")
+            chart_html = ""
+
         return {
             **state,
             "indicators":  snapshot,
@@ -111,7 +118,7 @@ def technical_agent(state: AnalysisState) -> AnalysisState:
             "fibonacci":   fibonacci,
             "pivots":      pivots,
             "session_info": session_info,
-            "chart_json":  "",
+            "chart_json":  chart_html,
             "errors":      errors,
         }
     except Exception as e:

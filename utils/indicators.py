@@ -7,7 +7,7 @@ Fibonacci retracements, support/resistance, and pivot points.
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple, Optional
-from config import (
+from utils.config import (
     SMA_PERIODS, RSI_PERIOD, MACD_FAST, MACD_SLOW, MACD_SIGNAL,
     BB_PERIOD, BB_STD, ATR_PERIOD, FIB_LOOKBACK_DAYS,
     RSI_OVERSOLD, RSI_OVERBOUGHT

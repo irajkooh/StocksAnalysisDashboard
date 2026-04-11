@@ -21,7 +21,7 @@ import gradio as gr
 
 _GRADIO_MAJOR = int(gr.__version__.split(".")[0])
 
-from config import (
+from utils.config import (
     BACKEND_URL, IS_HF_SPACE, LLM_PROVIDER, OLLAMA_MODEL, GROQ_MODEL,
     DEFAULT_WATCHLIST, REFRESH_OPTIONS, MAX_CHATBOT_MEMORY,
 )
@@ -555,6 +555,20 @@ sandbox="allow-scripts allow-same-origin allow-popups"
 </div>"""
 
 
+def _wrap_plotly(html: str) -> str:
+    if not html:
+        return ""
+    import html as _html_mod
+    escaped = _html_mod.escape(html, quote=True)
+    return (
+        '<div style="border-radius:8px;overflow:hidden;border:1px solid #1e293b;background:#0f172a">'
+        f'<iframe srcdoc="{escaped}" '
+        'style="width:100%;height:580px;border:none;background:#0f172a" '
+        'sandbox="allow-scripts allow-same-origin allow-downloads"></iframe>'
+        '</div>'
+    )
+
+
 def _run(ticker):
     owns = _owned_map.get(ticker, False)
     data = _analyze_api(ticker, owns)
@@ -573,9 +587,10 @@ def _run(ticker):
     _chatbot_ctx[ticker]    = data.get("llm_chatbot_ctx", "")
     _analysis_cache[ticker] = data
     si = data.get("session_info", {})
+    chart_html = data.get("chart_json") or _tv_chart(ticker, si)
     return (
         _hero_html(ticker, dec.get("action","N/A"), ind.get("price",0), dcf, owns, si),
-        _tv_chart(ticker, si),
+        _wrap_plotly(chart_html),
         _signals_html(dec, ind, risk),
         _levels_html(data.get("supports",[]), data.get("resistances",[]),
                      data.get("pivots",{}), data.get("fibonacci",{})),
@@ -595,9 +610,10 @@ def _render_from_data(ticker, data):
     owns   = _owned_map.get(ticker, False)
     report = f"### 📊 {ticker} — AI Analysis\n\n" + data.get("llm_summary", "")
     si     = data.get("session_info", {})
+    chart_html = data.get("chart_json") or _tv_chart(ticker, si)
     return (
         _hero_html(ticker, dec.get("action","N/A"), ind.get("price",0), dcf, owns, si),
-        _tv_chart(ticker, si),
+        _wrap_plotly(chart_html),
         _signals_html(dec, ind, risk),
         _levels_html(data.get("supports",[]), data.get("resistances",[]),
                      data.get("pivots",{}), data.get("fibonacci",{})),
@@ -669,7 +685,9 @@ def build_app():
         syms_state = gr.State(value=list(init_syms))
 
         # cur_sym: which symbol the shared panel shows (updated by tab.select)
-        cur_sym      = gr.State(value=init_syms[0] if init_syms else "")
+        # Intentionally starts empty so demo.load can set it to syms[0],
+        # which fires cur_sym.change and renders the first tab's panel on startup.
+        cur_sym      = gr.State(value="")
         report_state = gr.State("")
         rep_reading  = gr.State(False)
         chat_reading = gr.State(False)
@@ -831,7 +849,7 @@ def build_app():
                         *_tab_updates(syms), *_own_chk_updates(syms))
             syms.append(sym)
             _owned_map.setdefault(sym, False)
-            save_session(syms, _owned_map, _watchlist)
+            save_session(syms, _owned_map, _watchlist, snapshots=_analysis_cache)
             return ("", syms,
                     f'<div style="color:#22c55e;font-size:12px"><b>{sym}</b> added.</div>',
                     *_tab_updates(syms), *_own_chk_updates(syms))
@@ -858,27 +876,50 @@ def build_app():
                 .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list))
 
         # ── Per-tab Delete buttons (reliable: no cur_sym race condition) ───
-        def do_delete_slot(syms, idx):
+        def do_delete_slot(syms, idx, cur):
             syms = list(syms)
             if idx >= len(syms) or not syms[idx]:
-                return (syms,
+                return (syms, cur,
                         '<div style="color:#ef4444;font-size:12px">No stock at this slot.</div>',
                         *_tab_updates(syms), *_own_chk_updates(syms))
             sym = syms[idx]
             syms.pop(idx)
             _owned_map.pop(sym, None)
             _analysis_cache.pop(sym, None)
-            save_session(syms, _owned_map, _watchlist)
-            return (syms,
+            save_session(syms, _owned_map, _watchlist, snapshots=_analysis_cache)
+            # Pick a new active sym if the deleted one was active
+            new_cur = cur
+            if cur == sym:
+                new_cur = syms[0] if syms else ""
+            return (syms, new_cur,
                     f'<div style="color:#22c55e;font-size:12px"><b>{sym}</b> deleted.</div>',
                     *_tab_updates(syms), *_own_chk_updates(syms))
 
+        _EMPTY_PANEL = [
+            '<div style="color:#475569;padding:12px">Select a tab above, then click <b>Analyze Stock</b> to analyze.</div>',
+            "", "", "", "", "", "*Run analysis to see AI report.*", "",
+        ]
+
+        def _panel_after_delete(syms, cur):
+            """After deletion, show the new active symbol's data or clear the panel."""
+            cur = (cur or "").strip().upper()
+            if not cur:
+                return _EMPTY_PANEL
+            data = _analysis_cache.get(cur)
+            if data:
+                return list(_render_from_data(cur, data))
+            return [
+                f'<div style="color:#475569;padding:12px"><b>{cur}</b> — Click <b>Analyze Stock</b> to analyze.</div>',
+                _tv_chart(cur, {}), "", "", "", "", "*Run analysis to see AI report.*", "",
+            ]
+
         for i, btn in enumerate(del_tab_btns):
             (btn.click(
-                fn=lambda syms, idx=i: do_delete_slot(syms, idx),
-                inputs=[syms_state],
-                outputs=[syms_state, status_msg] + tab_objs + own_chk_list,
-            ).then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list))
+                fn=lambda syms, cur, idx=i: do_delete_slot(syms, idx, cur),
+                inputs=[syms_state, cur_sym],
+                outputs=[syms_state, cur_sym, status_msg] + tab_objs + own_chk_list,
+            ).then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list)
+             .then(fn=_panel_after_delete, inputs=[syms_state, cur_sym], outputs=PANEL))
 
         # ── Per-tab Move Left / Move Right buttons ─────────────────────────
         def do_move_slot(syms, idx, direction):
@@ -888,7 +929,7 @@ def build_app():
             if idx < 0 or idx >= n or swap < 0 or swap >= n:
                 return (syms, '', *_tab_updates(syms), *_own_chk_updates(syms))
             syms[idx], syms[swap] = syms[swap], syms[idx]
-            save_session(syms, _owned_map, _watchlist)
+            save_session(syms, _owned_map, _watchlist, snapshots=_analysis_cache)
             return (syms, '', *_tab_updates(syms), *_own_chk_updates(syms))
 
         _MOVE_OUTPUTS = [syms_state, status_msg] + tab_objs + own_chk_list
@@ -906,7 +947,7 @@ def build_app():
 
         # ── Save ───────────────────────────────────────────────────────────
         def _on_ref_dd_change(syms, rv):
-            save_session(list(syms), _owned_map, _watchlist, rv)
+            save_session(list(syms), _owned_map, _watchlist, rv, snapshots=_analysis_cache)
             return str(REFRESH_OPTIONS.get(rv, 0))
 
         ref_dd.change(fn=_on_ref_dd_change, inputs=[syms_state, ref_dd], outputs=[ar_secs])
@@ -917,7 +958,9 @@ def build_app():
             if not sym:
                 return [gr.update()] * 8
             _analysis_cache.pop(sym, None)
-            return list(_run(sym))
+            result = list(_run(sym))
+            save_session(list(_analysis_cache.keys()), _owned_map, _watchlist, snapshots=_analysis_cache)
+            return result
 
         def do_price_refresh(cur_sym_val, syms):
             """Fetch fresh prices for ALL open tabs directly via yfinance — no HTTP."""
@@ -1010,6 +1053,7 @@ def build_app():
             for s in syms:
                 _analysis_cache.pop(s, None)
                 _run(s)
+            save_session(syms, _owned_map, _watchlist, snapshots=_analysis_cache)
             show = (active_sym or "").strip().upper()
             if show not in syms:
                 show = syms[0]
@@ -1057,7 +1101,7 @@ def build_app():
         def do_save(syms, ref):
             try:
                 syms = list(syms) if syms else []
-                ok, err = save_session(syms, _owned_map, _watchlist, ref)
+                ok, err = save_session(syms, _owned_map, _watchlist, ref, snapshots=_analysis_cache)
                 if ok:
                     return '<div style="color:#22c55e;font-size:12px">&#10003; Dashboard saved.</div>'
                 return f'<div style="color:#ef4444;font-size:12px">Save failed: {err}</div>'
@@ -1240,13 +1284,16 @@ def build_app():
             _owned_map.update(sess.get("owned", {}))
             _watchlist.clear()
             _watchlist.extend(sess.get("watchlist", list(DEFAULT_WATCHLIST)))
+            _analysis_cache.clear()
+            _analysis_cache.update(sess.get("snapshots", {}))
             ref  = sess.get("refresh_interval", "Off")
             secs = str(REFRESH_OPTIONS.get(ref, 0))
-            return [syms, ref, secs] + list(_tab_updates(syms)) + list(_own_chk_updates(syms))
+            first_sym = syms[0] if syms else ""
+            return [syms, ref, secs, first_sym] + list(_tab_updates(syms)) + list(_own_chk_updates(syms))
 
         demo.load(
             fn=_on_page_load,
-            outputs=[syms_state, ref_dd, ar_secs] + tab_objs + own_chk_list,
+            outputs=[syms_state, ref_dd, ar_secs, cur_sym] + tab_objs + own_chk_list,
         )
 
         # ── Watchlist ──────────────────────────────────────────────────────
@@ -1254,7 +1301,7 @@ def build_app():
             sym = sym.strip().upper()
             if sym and sym not in _watchlist:
                 _watchlist.append(sym)
-                save_session([], _owned_map, _watchlist)
+                save_session([], _owned_map, _watchlist, snapshots=_analysis_cache)
             return gr.update(choices=list(_watchlist), value=None), ""
 
         wl_add.click(fn=do_wl_add, inputs=[wl_in], outputs=[wl_radio, wl_in])
@@ -1265,7 +1312,7 @@ def build_app():
             syms = list(syms)
             if sym and sym in _watchlist:
                 _watchlist.remove(sym)
-                save_session(syms, _owned_map, _watchlist)
+                save_session(syms, _owned_map, _watchlist, snapshots=_analysis_cache)
             return gr.update(choices=list(_watchlist), value=None)
 
         wl_del.click(fn=do_wl_delete, inputs=[wl_radio, syms_state], outputs=[wl_radio])
@@ -1285,7 +1332,7 @@ def build_app():
                         *_tab_updates(syms), *_own_chk_updates(syms))
             syms.append(sym)
             _owned_map.setdefault(sym, False)
-            save_session(syms, _owned_map, _watchlist)
+            save_session(syms, _owned_map, _watchlist, snapshots=_analysis_cache)
             return (syms,
                     f'<div style="color:#22c55e;font-size:12px"><b>{sym}</b> added.</div>',
                     *_tab_updates(syms), *_own_chk_updates(syms))
@@ -1831,7 +1878,7 @@ THEME = gr.themes.Soft(primary_hue="blue", secondary_hue="slate", neutral_hue="s
 
 
 if __name__ == "__main__":
-    from config import FRONTEND_PORT
+    from utils.config import FRONTEND_PORT
     build_app().launch(
         server_name="0.0.0.0",
         server_port=FRONTEND_PORT,

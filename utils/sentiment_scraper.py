@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 
-from config import (
+from utils.config import (
     NEWS_API_KEY, REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET,
     REDDIT_USER_AGENT, SEC_EDGAR_BASE_URL, SENTIMENT_WEIGHTS
 )

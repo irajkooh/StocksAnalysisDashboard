@@ -6,7 +6,7 @@ Fetches OHLCV price data, company info, and financials via yfinance.
 import time
 import logging
 from agents.state import AnalysisState
-from config import DEFAULT_PERIOD, DEFAULT_INTERVAL, INTRADAY_INTERVAL
+from utils.config import DEFAULT_PERIOD, DEFAULT_INTERVAL, INTRADAY_INTERVAL
 
 logger = logging.getLogger(__name__)
 

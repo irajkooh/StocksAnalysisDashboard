@@ -5,7 +5,7 @@ Discounted Cash Flow model using yfinance fundamental data.
 
 import math
 from typing import Dict, Optional
-from config import (
+from utils.config import (
     DCF_DISCOUNT_RATE, DCF_TERMINAL_GROWTH_RATE,
     DCF_PROJECTION_YEARS, DCF_EPS_GROWTH_FALLBACK,
     UNDERVALUED_THRESHOLD, OVERVALUED_THRESHOLD

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, List
 from datetime import datetime, timezone
 
-from config import SESSION_FILE
+from utils.config import SESSION_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +27,18 @@ def load_session() -> Dict:
     return _empty_session()
 
 
+_SKIP_KEYS = {"chart_json", "_ts"}
+
+
+def _strip_snapshot(data: dict) -> dict:
+    """Remove non-serialisable / oversized keys before writing to disk."""
+    return {k: v for k, v in data.items() if k not in _SKIP_KEYS}
+
+
 def save_session(symbols: List[str], owned: Dict[str, bool],
                  watchlist: List[str] = None,
-                 refresh_interval: str = "Off"):
+                 refresh_interval: str = "Off",
+                 snapshots: Dict[str, dict] = None):
     """Persist current dashboard state to disk.
     Returns (True, "") on success or (False, error_message) on failure."""
     data = {
@@ -39,6 +48,7 @@ def save_session(symbols: List[str], owned: Dict[str, bool],
         "owned":            owned,
         "watchlist":        watchlist or [],
         "refresh_interval": refresh_interval,
+        "snapshots":        {k: _strip_snapshot(v) for k, v in (snapshots or {}).items()},
     }
     try:
         with open(SESSION_FILE, "w") as f:
@@ -58,4 +68,5 @@ def _empty_session() -> Dict:
         "owned":            {},
         "watchlist":        [],
         "refresh_interval": "Off",
+        "snapshots":        {},
     }

@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from agents.supervisor import run_analysis, get_mermaid_diagram
 from utils.session_manager import load_session, save_session
 from utils.device import get_device, get_device_label
-from config import (
+from utils.config import (
     IS_HF_SPACE, LLM_PROVIDER,
     OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT,
     GROQ_API_KEY, GROQ_MODEL,
@@ -431,5 +431,5 @@ def _sanitize(obj):
 
 if __name__ == "__main__":
     import uvicorn
-    from config import BACKEND_PORT
+    from utils.config import BACKEND_PORT
     uvicorn.run("backend:app", host="0.0.0.0", port=BACKEND_PORT, reload=False)
