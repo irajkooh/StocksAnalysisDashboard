@@ -204,80 +204,6 @@ def fetch_twitter_sentiment(ticker: str) -> Dict:
             "posts": posts[:8], "count": len(posts)}
 
 
-# ─── yfinance News (free, no API key) ─────────────────────────────────────────
-
-def fetch_yfinance_news_sentiment(ticker: str) -> Dict:
-    """Get news headlines via yfinance — works without API keys everywhere."""
-    headlines, score, articles = [], 0.0, []
-    try:
-        import yfinance as yf
-        stock = yf.Ticker(ticker)
-        news_items = stock.news or []
-        for item in news_items[:20]:
-            # yfinance nests data under "content" in newer versions
-            content = item.get("content", item)
-            title = content.get("title", "") or item.get("title", "")
-            summary = content.get("summary", "") or ""
-            publisher = (content.get("provider", {}).get("displayName", "")
-                         or item.get("publisher", "")
-                         or item.get("source", ""))
-            link = (content.get("canonicalUrl", {}).get("url", "")
-                    or item.get("link", "")
-                    or item.get("url", ""))
-            text = f"{title} {summary}".strip()
-            if not text:
-                continue
-            s = score_text(text)
-            score += s
-            headlines.append({
-                "title": title, "score": round(s, 2),
-                "url": link, "source": publisher,
-            })
-        if headlines:
-            score /= len(headlines)
-        articles = headlines[:8]
-    except Exception as e:
-        logger.warning(f"yfinance news error: {e}")
-    return {"score": round(score, 3), "label": sentiment_label(score),
-            "headlines": articles, "count": len(articles)}
-
-
-# ─── FinViz Headlines (free, no API key) ──────────────────────────────────────
-
-def fetch_finviz_sentiment(ticker: str) -> Dict:
-    """Scrape FinViz news headlines for sentiment — no API key needed."""
-    headlines, score, articles = [], 0.0, []
-    try:
-        url = f"https://finviz.com/quote.ashx?t={ticker.upper()}&ty=c&p=d&b=1"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                          "AppleWebKit/537.36 (KHTML, like Gecko) "
-                          "Chrome/120.0.0.0 Safari/537.36",
-        }
-        r = requests.get(url, headers=headers, timeout=10)
-        if r.status_code == 200:
-            # Extract news table rows — each row has an <a> tag with the headline
-            rows = re.findall(
-                r'class="tab-link-news"[^>]*href="([^"]*)"[^>]*>(.*?)</a>',
-                r.text, re.S,
-            )
-            for link, title in rows[:20]:
-                title = re.sub(r"<[^>]+>", "", title).strip()
-                if not title:
-                    continue
-                s = score_text(title)
-                score += s
-                headlines.append({"title": title, "score": round(s, 2),
-                                   "url": link, "source": "FinViz"})
-            if headlines:
-                score /= len(headlines)
-            articles = headlines[:8]
-    except Exception as e:
-        logger.warning(f"FinViz scrape error: {e}")
-    return {"score": round(score, 3), "label": sentiment_label(score),
-            "headlines": articles, "count": len(articles)}
-
-
 # ─── Aggregated Sentiment ─────────────────────────────────────────────────────
 
 def get_aggregate_sentiment(ticker: str) -> Dict:
@@ -286,25 +212,6 @@ def get_aggregate_sentiment(ticker: str) -> Dict:
     news    = fetch_news_sentiment(ticker)
     reddit  = fetch_reddit_sentiment(ticker)
     sec     = fetch_sec_sentiment(ticker)
-
-    # Free fallbacks for sources that returned zero results
-    if news["count"] == 0:
-        yf_news = fetch_yfinance_news_sentiment(ticker)
-        if yf_news["count"] > 0:
-            news = yf_news
-            news["source"] = "Yahoo Finance"
-
-    if news["count"] == 0:
-        fv = fetch_finviz_sentiment(ticker)
-        if fv["count"] > 0:
-            news = fv
-            news["source"] = "FinViz"
-
-    if twitter["count"] == 0 and reddit["count"] == 0:
-        # Use FinViz as social substitute when both social sources fail
-        fv = fetch_finviz_sentiment(ticker) if news.get("source") != "FinViz" else {"count": 0, "score": 0}
-        if fv["count"] > 0:
-            twitter = {**fv, "source": "FinViz (social sub)"}
 
     w = SENTIMENT_WEIGHTS
     agg = (
