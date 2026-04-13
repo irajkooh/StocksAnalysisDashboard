@@ -644,7 +644,7 @@ def build_app():
     init_syms   = list(session.get("symbols", [])) or list(DEFAULT_TABS)
     _owned_map.update(session.get("owned", {}))
     _watchlist.clear()
-    _watchlist.extend(session.get("watchlist", list(DEFAULT_WATCHLIST)))
+    _watchlist.extend(session.get("watchlist") or list(DEFAULT_WATCHLIST))
     saved_ref   = session.get("refresh_interval", "Off")
 
     if _GRADIO_MAJOR >= 6:
@@ -1299,7 +1299,7 @@ def build_app():
             _owned_map.clear()
             _owned_map.update(sess.get("owned", {}))
             _watchlist.clear()
-            _watchlist.extend(sess.get("watchlist", list(DEFAULT_WATCHLIST)))
+            _watchlist.extend(sess.get("watchlist") or list(DEFAULT_WATCHLIST))
             _analysis_cache.clear()
             _analysis_cache.update(sess.get("snapshots", {}))
 
