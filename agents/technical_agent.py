@@ -32,6 +32,7 @@ def _session_info(info: dict, df=None) -> dict:
 
     pre_p  = _g("preMarketPrice")  or _g("_pre_last_price")
     post_p = _g("postMarketPrice") or _g("_post_last_price")
+    ovn_p  = _g("_ovn_last_price")
 
     # prev_close: best reference for computing extended-hours changes
     prev_close = _g("regularMarketPreviousClose") or (
@@ -60,11 +61,10 @@ def _session_info(info: dict, df=None) -> dict:
     pre_change,  pre_pct  = _chg(pre_p,  ref)
     post_change, post_pct = _chg(post_p, ref)
 
-    # Overnight gap pill: most recent extended-hours price vs prev close
-    ext_p = pre_p if pre_p is not None else post_p
-    ovn_change, ovn_pct = _chg(ext_p, prev_close)
-    if ext_p is None or ovn_change is None:
-        ext_p = ovn_change = ovn_pct = None
+    # Overnight pill: only show when actual overnight bars (8 PM ET+) exist
+    ovn_change, ovn_pct = _chg(ovn_p, prev_close)
+    if ovn_p is None or ovn_change is None:
+        ovn_p = ovn_change = ovn_pct = None
 
     return {
         "regular_price":    reg_price,
@@ -76,7 +76,7 @@ def _session_info(info: dict, df=None) -> dict:
         "post_price":       post_p,
         "post_change":      post_change,
         "post_pct":         post_pct,
-        "overnight_price":  ext_p,
+        "overnight_price":  ovn_p,
         "overnight_change": ovn_change,
         "overnight_pct":    ovn_pct,
         "prev_close":       prev_close,
