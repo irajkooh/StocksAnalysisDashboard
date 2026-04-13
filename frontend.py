@@ -1302,6 +1302,57 @@ def build_app():
             _watchlist.extend(sess.get("watchlist", list(DEFAULT_WATCHLIST)))
             _analysis_cache.clear()
             _analysis_cache.update(sess.get("snapshots", {}))
+
+            # Refresh session_info for all cached symbols so pre/post-market
+            # prices are always current at startup (not stale from session.json).
+            if syms:
+                try:
+                    import yfinance as yf
+                    from agents.technical_agent import _session_info as _si_fn
+                    for s in syms:
+                        try:
+                            stock = yf.Ticker(s)
+                            info = {}
+                            pre_last = post_last = ovn_last = None
+                            try:
+                                df_1m = stock.history(period="1d", interval="1m", prepost=True)
+                                if df_1m is not None and not df_1m.empty:
+                                    info["_ext_last_price"] = float(df_1m["Close"].iloc[-1])
+                                    ts = df_1m.index[-1]
+                                    h, m = ts.hour, ts.minute
+                                    ap = "AM" if h < 12 else "PM"
+                                    info["_ext_last_time"] = f"{h % 12 or 12}:{m:02d} {ap} ET"
+                                    for bar_ts in df_1m.index:
+                                        bh, bm = bar_ts.hour, bar_ts.minute
+                                        price  = float(df_1m.loc[bar_ts, "Close"])
+                                        if bh < 9 or (bh == 9 and bm < 30):
+                                            pre_last = price
+                                        elif 16 <= bh < 20:
+                                            post_last = price
+                                        elif bh >= 20:
+                                            ovn_last = price
+                            except Exception:
+                                pass
+                            if pre_last  is not None: info["_pre_last_price"]  = pre_last
+                            if post_last is not None: info["_post_last_price"] = post_last
+                            if ovn_last  is not None: info["_ovn_last_price"]  = ovn_last
+                            df_1d = None
+                            try:
+                                df_1d = stock.history(period="2d", interval="1d", auto_adjust=True)
+                                if df_1d is not None and not df_1d.empty:
+                                    df_1d.index = df_1d.index.tz_localize(None)
+                                else:
+                                    df_1d = None
+                            except Exception:
+                                pass
+                            si = _si_fn(info, df_1d)
+                            if s in _analysis_cache:
+                                _analysis_cache[s]["session_info"] = si
+                        except Exception as e:
+                            logger.debug(f"Startup price refresh [{s}]: {e}")
+                except Exception as e:
+                    logger.warning(f"Startup price refresh failed: {e}")
+
             ref  = sess.get("refresh_interval", "Off")
             secs = str(REFRESH_OPTIONS.get(ref, 0))
             first_sym = syms[0] if syms else ""

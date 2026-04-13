@@ -30,8 +30,8 @@ def _session_info(info: dict, df=None) -> dict:
         v = info.get(key)
         return float(v) if v is not None else None
 
-    pre_p  = _g("preMarketPrice")
-    post_p = _g("postMarketPrice")
+    pre_p  = _g("preMarketPrice")  or _g("_pre_last_price")
+    post_p = _g("postMarketPrice") or _g("_post_last_price")
 
     # prev_close: best reference for computing extended-hours changes
     prev_close = _g("regularMarketPreviousClose") or (
