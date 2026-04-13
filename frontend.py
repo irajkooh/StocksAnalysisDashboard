@@ -161,8 +161,7 @@ def _session_pills(si: dict) -> str:
                 f'{arrow} {ch}&nbsp;&nbsp;{pc}</div>'
             )
         else:
-            body = '<div style="color:#475569;font-size:10px;margin-top:4px">—</div>'
-
+            body = '<div style="color:#475569;font-size:13px;font-weight:700">—</div>'
         return (
             f'<div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;'
             f'padding:6px 14px;text-align:center;min-width:100px">'
@@ -171,10 +170,10 @@ def _session_pills(si: dict) -> str:
             f'{body}</div>'
         )
 
-    pre  = _pill("Pre-Market",    si.get("pre_price"),       si.get("pre_change"),       si.get("pre_pct"),       "#60a5fa")
-    reg  = _pill("Regular",       si.get("regular_price"),   si.get("regular_change"),   si.get("regular_pct"),   "#38bdf8")
-    post = _pill("After-Hours",   si.get("post_price"),      si.get("post_change"),      si.get("post_pct"),      "#a78bfa")
-    ovn  = _pill("Overnight Gap", si.get("overnight_price"), si.get("overnight_change"), si.get("overnight_pct"), "#fbbf24")
+    pre  = _pill("Pre-Market",  si.get("pre_price"),     si.get("pre_change"),     si.get("pre_pct"),     "#60a5fa")
+    reg  = _pill("Regular",     si.get("regular_price"), si.get("regular_change"), si.get("regular_pct"), "#38bdf8")
+    post = _pill("After-Hours", si.get("post_price"),    si.get("post_change"),    si.get("post_pct"),    "#a78bfa")
+    ovn  = _pill("Overnight",   si.get("overnight_price"), si.get("overnight_change"), si.get("overnight_pct"), "#f472b6")
     return f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">{pre}{reg}{post}{ovn}</div>'
 
 
@@ -424,7 +423,7 @@ def _sentiment_html(sentiment):
         '<b style="color:#38bdf8;font-size:12px">SENTIMENT</b>'
         f'<b style="color:{ac};font-size:14px">{lbl} ({agg:+.2f})</b></div>'
         + legend
-        + bar("𝕏", "X.com",  tw.get("score",0), tw.get("count",0), "#1d9bf0")
+        + bar("𝕏", tw.get("source", "X.com"), tw.get("score",0), tw.get("count",0), "#1d9bf0")
         + bar("R", "Reddit", rd.get("score",0), rd.get("count",0), "#ff4500")
         + bar("N", "News",   nw.get("score",0), nw.get("count",0), "#38bdf8")
         + bar("S", "SEC",    sc.get("score",0), sc.get("count",0), "#a78bfa")
@@ -551,7 +550,7 @@ def _tv_chart(symbol: str, session_info: dict = None) -> str:
 </body></html>'
 width="100%" height="560" frameborder="0"
 style="width:100%;height:560px;border:none"
-sandbox="allow-scripts allow-same-origin allow-popups"
+sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-downloads allow-forms"
 ></iframe></div>
 {legend}
 </div>"""
@@ -797,7 +796,7 @@ def build_app():
 
                 with gr.Accordion("Ask a Question", open=False):
                     _chat_kwargs = {} if _GRADIO_MAJOR >= 6 else {"type": "messages"}
-                    chatbot  = gr.Chatbot(height=240, show_label=False, elem_id="chatbot-box", **_chat_kwargs)
+                    chatbot  = gr.Chatbot(height=650, show_label=False, elem_id="chatbot-box", **_chat_kwargs)
                     with gr.Row():
                         cpy_btn = gr.Button("📋 Copy Chat",  size="sm", scale=1, elem_id="cpy-btn")
                         clr_btn = gr.Button("🗑 Clear Chat", size="sm", scale=1, elem_id="clr-btn")
@@ -985,7 +984,7 @@ def build_app():
                 """Return a fresh session_info dict for symbol s."""
                 try:
                     stock = yf.Ticker(s)
-                    ext_last, ext_time = None, None
+                    ext_last = ext_time = pre_last = reg_last = post_last = ovn_last = None
                     try:
                         df_1m = stock.history(period="1d", interval="1m", prepost=True)
                         if df_1m is not None and not df_1m.empty:
@@ -994,6 +993,18 @@ def build_app():
                             h, m = ts.hour, ts.minute
                             ap = "AM" if h < 12 else "PM"
                             ext_time = f"{h % 12 or 12}:{m:02d} {ap} ET"
+                            # Walk every bar — assign each to its session window (ET hours)
+                            for bar_ts in df_1m.index:
+                                bh, bm = bar_ts.hour, bar_ts.minute
+                                price  = float(df_1m.loc[bar_ts, "Close"])
+                                if bh < 9 or (bh == 9 and bm < 30):
+                                    pre_last  = price   # Pre-market:  4:00–9:30 AM ET
+                                elif (bh == 9 and bm >= 30) or (10 <= bh < 16):
+                                    reg_last  = price   # Regular:     9:30 AM–4:00 PM ET
+                                elif 16 <= bh < 20:
+                                    post_last = price   # After-hours: 4:00–8:00 PM ET
+                                elif bh >= 20:
+                                    ovn_last  = price   # Overnight:   8:00 PM+ ET
                     except Exception:
                         pass
                     df_1d = None
@@ -1005,11 +1016,14 @@ def build_app():
                             df_1d = None
                     except Exception:
                         pass
-                    info = {}
-                    if ext_last is not None:
-                        info["_ext_last_price"] = ext_last
-                    if ext_time is not None:
-                        info["_ext_last_time"]  = ext_time
+                    # "_reg_last_price" always present — signals price-refresh context
+                    # Each session's price is None until that session's bars appear → pills show "—"
+                    info = {"_reg_last_price": reg_last}
+                    if pre_last  is not None: info["_pre_last_price"]  = pre_last
+                    if post_last is not None: info["_post_last_price"] = post_last
+                    if ovn_last  is not None: info["_ovn_last_price"]  = ovn_last
+                    if ext_last  is not None: info["_ext_last_price"]  = ext_last
+                    if ext_time  is not None: info["_ext_last_time"]   = ext_time
                     si = _si_fn(info, df_1d)
                     si["_refreshed_at"] = now_str   # persist through tab switches
                     return si

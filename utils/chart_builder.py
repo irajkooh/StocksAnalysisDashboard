@@ -347,32 +347,26 @@ def build_plotly_chart(df: pd.DataFrame, symbol: str) -> str:
     )
     # Inject html2canvas-based PNG download that works inside a sandboxed iframe.
     # Plotly's built-in toImage needs Kaleido server-side; this runs fully in-browser.
-    _dl_script = """
+    _dl_script = f"""
 <script>
-(function() {
-  function waitForPlotly(cb, n) {
+(function() {{
+  function waitForPlotly(cb, n) {{
     n = n || 0;
-    var el = document.querySelector('.modebar-btn[data-title="Download plot as a png"]');
-    if (el) { cb(el); }
-    else if (n < 50) { setTimeout(function(){ waitForPlotly(cb, n+1); }, 200); }
-  }
-  waitForPlotly(function(btn) {
-    btn.addEventListener('click', function(e) {
-      e.stopImmediatePropagation();
-      e.preventDefault();
-      var gd = document.querySelector('.js-plotly-plot');
-      if (!gd) return;
-      Plotly.toImage(gd, {format:'png', width:1400, height:800, scale:2}).then(function(url) {
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = 'chart.png';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      });
-    }, true);
-  });
-})();
+    var gd = document.querySelector('.js-plotly-plot');
+    if (gd && gd._context) {{ cb(gd); }}
+    else if (n < 50) {{ setTimeout(function(){{ waitForPlotly(cb, n+1); }}, 200); }}
+  }}
+  waitForPlotly(function(gd) {{
+    var now = new Date();
+    var date = now.getFullYear() + '-' +
+      String(now.getMonth()+1).padStart(2,'0') + '-' +
+      String(now.getDate()).padStart(2,'0');
+    var time = String(now.getHours()).padStart(2,'0') + '-' +
+      String(now.getMinutes()).padStart(2,'0') + '-' +
+      String(now.getSeconds()).padStart(2,'0');
+    gd._context.toImageButtonOptions.filename = '{symbol}_' + date + '_' + time;
+  }});
+}})();
 </script>
 """
     return html.replace("</body>", _dl_script + "</body>")
