@@ -25,3 +25,4 @@ session.json
 utils/session.json
 .DS_Store
 **/.DS_Store
+.vscode/

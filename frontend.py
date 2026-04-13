@@ -25,7 +25,7 @@ _GRADIO_MAJOR = int(gr.__version__.split(".")[0])
 
 from utils.config import (
     BACKEND_URL, IS_HF_SPACE, LLM_PROVIDER, OLLAMA_MODEL, GROQ_MODEL,
-    DEFAULT_WATCHLIST, REFRESH_OPTIONS, MAX_CHATBOT_MEMORY,
+    DEFAULT_WATCHLIST, DEFAULT_TABS, REFRESH_OPTIONS, MAX_CHATBOT_MEMORY,
 )
 from utils.device import get_device_label
 from utils.session_manager import load_session, save_session
@@ -641,7 +641,7 @@ def _tab_updates(syms):
 
 def build_app():
     session     = load_session()
-    init_syms   = list(session.get("symbols", []))
+    init_syms   = list(session.get("symbols", [])) or list(DEFAULT_TABS)
     _owned_map.update(session.get("owned", {}))
     _watchlist.clear()
     _watchlist.extend(session.get("watchlist", list(DEFAULT_WATCHLIST)))
@@ -1295,7 +1295,7 @@ def build_app():
         # so that saves made in a previous browser session are picked up.
         def _on_page_load():
             sess = load_session()
-            syms = list(sess.get("symbols", []))
+            syms = list(sess.get("symbols", [])) or list(DEFAULT_TABS)
             _owned_map.clear()
             _owned_map.update(sess.get("owned", {}))
             _watchlist.clear()

@@ -115,7 +115,8 @@ REFRESH_OPTIONS = {
 }
 
 # ─── UI Defaults ──────────────────────────────────────────────────────────────
-DEFAULT_WATCHLIST  = ["AAPL", "TSLA", "NVDA", "MSFT", "GOOGL", "AMZN", "META"]
+DEFAULT_WATCHLIST  = ["NBIS", "NEBX", "SOFI", "TTD", "CONL", "MSTR", "MSTZ", "USO", "SCO", "DLXY", "POET"]
+DEFAULT_TABS       = ["CONL", "MSTZ", "USO", "SCO", "TTD"]  # tabs opened on fresh start
 CHART_THEME        = "plotly_dark"
 CHART_HEIGHT_MAIN  = 420
 CHART_HEIGHT_RSI   = 160
