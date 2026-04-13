@@ -424,9 +424,9 @@ def _sentiment_html(sentiment):
         f'<b style="color:{ac};font-size:14px">{lbl} ({agg:+.2f})</b></div>'
         + legend
         + bar("𝕏", tw.get("source", "X.com"), tw.get("score",0), tw.get("count",0), "#1d9bf0")
-        + bar("R", "Reddit", rd.get("score",0), rd.get("count",0), "#ff4500")
-        + bar("N", "News",   nw.get("score",0), nw.get("count",0), "#38bdf8")
-        + bar("S", "SEC",    sc.get("score",0), sc.get("count",0), "#a78bfa")
+        + bar("R", rd.get("source", "Reddit"), rd.get("score",0), rd.get("count",0), "#ff4500")
+        + bar("N", nw.get("source", "News"),   nw.get("score",0), nw.get("count",0), "#38bdf8")
+        + bar("S", sc.get("source", "SEC"),    sc.get("score",0), sc.get("count",0), "#a78bfa")
         + '</div>'
     )
 
