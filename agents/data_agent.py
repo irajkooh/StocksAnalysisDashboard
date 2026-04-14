@@ -62,31 +62,33 @@ def data_agent(state: AnalysisState) -> AnalysisState:
         except Exception:
             info = {}
 
-        # 1-min bars with prepost=True → last Close = most recent traded price at any hour.
-        # postMarketPrice in stock.info becomes None after 8 PM ET; this covers that gap.
+        # 1-min bars with prepost=True — walk ALL bars so every session's
+        # last price is captured independently (pre, regular, post, overnight).
+        # Only looking at the last bar would miss e.g. pre-market during regular hours.
         try:
             df_ext = stock.history(period="1d", interval="1m", prepost=True)
             if df_ext is not None and not df_ext.empty:
-                info["_ext_last_price"] = float(df_ext["Close"].iloc[-1])
+                pre_last = reg_last = post_last = ovn_last = None
+                for bar_ts in df_ext.index:
+                    bh, bm = bar_ts.hour, bar_ts.minute
+                    p = float(df_ext.loc[bar_ts, "Close"])
+                    if bh < 9 or (bh == 9 and bm < 30):
+                        pre_last  = p   # Pre-market:  4:00–9:30 AM ET
+                    elif (bh == 9 and bm >= 30) or (10 <= bh < 16):
+                        reg_last  = p   # Regular:     9:30 AM–4:00 PM ET
+                    elif 16 <= bh < 20:
+                        post_last = p   # After-hours: 4:00–8:00 PM ET
+                    elif bh >= 20:
+                        ovn_last  = p   # Overnight:   8:00 PM+ ET
                 ts = df_ext.index[-1]
-                try:
-                    h, m = ts.hour, ts.minute
-                    ampm = "AM" if h < 12 else "PM"
-                    h12  = h % 12 or 12
-                    info["_ext_last_time"] = f"{h12}:{m:02d} {ampm} ET"
-                    # Classify last bar into its trading session so _session_info
-                    # shows the correct live price pill without needing yfinance info fields.
-                    p = info["_ext_last_price"]
-                    if h < 9 or (h == 9 and m < 30):
-                        info["_pre_last_price"]  = p  # Pre-market:  4:00–9:30 AM ET
-                    elif (h == 9 and m >= 30) or (10 <= h < 16):
-                        info["_reg_last_price"]  = p  # Regular:     9:30 AM–4:00 PM ET
-                    elif 16 <= h < 20:
-                        info["_post_last_price"] = p  # After-hours: 4:00–8:00 PM ET
-                    elif h >= 20:
-                        info["_ovn_last_price"]  = p  # Overnight:   8:00 PM+ ET
-                except Exception:
-                    pass
+                h, m = ts.hour, ts.minute
+                info["_ext_last_price"] = float(df_ext["Close"].iloc[-1])
+                info["_ext_last_time"]  = f"{h % 12 or 12}:{m:02d} {'AM' if h < 12 else 'PM'} ET"
+                # Always set reg so _session_info knows we have live data
+                info["_reg_last_price"] = reg_last
+                if pre_last  is not None: info["_pre_last_price"]  = pre_last
+                if post_last is not None: info["_post_last_price"] = post_last
+                if ovn_last  is not None: info["_ovn_last_price"]  = ovn_last
         except Exception:
             pass
 
