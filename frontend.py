@@ -426,10 +426,10 @@ def _sentiment_html(sentiment):
         '<b style="color:#38bdf8;font-size:12px">SENTIMENT</b>'
         f'<b style="color:{ac};font-size:14px">{lbl} ({agg:+.2f})</b></div>'
         + legend
-        + bar("𝕏",  tw.get("source", "Google News"), tw.get("score",0), tw.get("count",0), "#1d9bf0")
-        + bar("r/", "Reddit Posts",  rd.get("score",0), rd.get("count",0), "#ff4500")
-        + bar("📰", "News Articles", nw.get("score",0), nw.get("count",0), "#38bdf8")
-        + bar("📋", "SEC Filings (8-K/10-K/10-Q)", sc.get("score",0), sc.get("count",0), "#a78bfa")
+        + bar("🌐", "Google News Headlines",         tw.get("score",0), tw.get("count",0), "#1d9bf0")
+        + bar("💬", "Reddit (WSB + Investing)",       rd.get("score",0), rd.get("count",0), "#ff4500")
+        + bar("📰", "News Articles (NewsAPI/Yahoo)",  nw.get("score",0), nw.get("count",0), "#38bdf8")
+        + bar("📋", "SEC Filings (8-K/10-K/10-Q)",   sc.get("score",0), sc.get("count",0), "#a78bfa")
         + '</div>'
     )
 
