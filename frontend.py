@@ -311,9 +311,9 @@ def _signals_html(decision, indicators, risk):
         _c("RSI",    f"{rsi:.1f}",    rc,        rsi_state,   "Relative Strength Index", fill=True, sub_color=rsi_sc)
         + _c("ATR",  f'${indicators.get("atr",0):.2f}', "#facc15", "14-Period", "Average True Range",  fill=True)
         + _c("StochK",f"{stoch_k:.1f}", stoch_sc, stoch_state, "Stochastic %K",          fill=True, sub_color=stoch_sc)
-        + _c("VolAnn",f"{vol_ann:.1f}%", "#ef4444", vol_state,  "Annualized Volatility",  fill=True, sub_color=vol_sc)
-        + _c("Sharpe",f"{sharpe:.2f}",  "#22c55e", sharpe_state, "Sharpe Ratio",          fill=True, sub_color=sharpe_sc)
-        + _c("Risk",  f"{risk_score}/10", "#ef4444", risk_label, "Risk Score",            fill=True, sub_color=risk_sc)
+        + _c("VolAnn",f"{vol_ann:.1f}%", vol_sc,    vol_state,  "Annualized Volatility",  fill=True, sub_color=vol_sc)
+        + _c("Sharpe",f"{sharpe:.2f}",  sharpe_sc, sharpe_state, "Sharpe Ratio",          fill=True, sub_color=sharpe_sc)
+        + _c("Risk",  f"{risk_score}/10", risk_sc,  risk_label, "Risk Score",            fill=True, sub_color=risk_sc)
     )
     return (
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
