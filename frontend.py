@@ -927,11 +927,11 @@ def build_app():
             if not cur:
                 return _EMPTY_PANEL
             data = _analysis_cache.get(cur)
-            if data:
+            if data and data.get("indicators"):
                 return list(_render_from_data(cur, data))
             return [
                 _hero_placeholder(cur),
-                "", "", "", "", "", "*Run analysis to see AI report.*", "",
+                _tv_chart(cur), "", "", "", "", "*Run analysis to see AI report.*", "",
             ]
 
         for i, btn in enumerate(del_tab_btns):
@@ -1107,10 +1107,14 @@ def build_app():
                     "*Run analysis to see AI report.*", "",
                 ]
             data = _analysis_cache.get(sym)
-            if not data:
+            if not data or not data.get("indicators"):
+                # Price-only cache (from Live Prices) — show hero + chart but no analysis panels
+                si   = data.get("session_info", {}) if data else {}
+                owns = _owned_map.get(sym, False)
+                hero = _hero_html(sym, "N/A", si.get("_reg_last_price") or 0, {}, owns, si) if si else _hero_placeholder(sym)
                 return [
-                    _hero_placeholder(sym),
-                    "", "", "", "", "",
+                    hero,
+                    _tv_chart(sym, si), "", "", "", "",
                     "*Run analysis to see AI report.*", "",
                 ]
             return list(_render_from_data(sym, data))
@@ -1334,7 +1338,85 @@ def build_app():
         demo.load(
             fn=_on_page_load,
             outputs=[syms_state, ref_dd, ar_secs, cur_sym, wl_radio] + tab_objs + own_chk_list,
+        ).then(
+            fn=lambda sym, syms: _startup_prices(sym, syms),
+            inputs=[cur_sym, syms_state],
+            outputs=PANEL,
         )
+
+        def _startup_prices(cur_sym_val, syms):
+            """Fetch live prices for all tabs at startup; render hero + chart for active tab."""
+            import time as _time
+            import yfinance as yf
+            from agents.technical_agent import _session_info as _si_fn
+
+            syms = [s for s in list(syms) if s]
+            cur  = (cur_sym_val or "").strip().upper()
+            if not syms:
+                return [_hero_placeholder(), "", "", "", "", "", "*Run analysis to see AI report.*", ""]
+
+            t       = _time.localtime()
+            h12     = t.tm_hour % 12 or 12
+            ampm    = "AM" if t.tm_hour < 12 else "PM"
+            now_str = f"{h12}:{t.tm_min:02d}:{t.tm_sec:02d} {ampm}"
+
+            for s in syms:
+                try:
+                    stock = yf.Ticker(s)
+                    ext_last = ext_time = pre_last = reg_last = post_last = ovn_last = None
+                    try:
+                        df_1m = stock.history(period="1d", interval="1m", prepost=True)
+                        if df_1m is not None and not df_1m.empty:
+                            ext_last = float(df_1m["Close"].iloc[-1])
+                            ts = df_1m.index[-1]
+                            h, m = ts.hour, ts.minute
+                            ap = "AM" if h < 12 else "PM"
+                            ext_time = f"{h % 12 or 12}:{m:02d} {ap} ET"
+                            for bar_ts in df_1m.index:
+                                bh, bm = bar_ts.hour, bar_ts.minute
+                                price  = float(df_1m.loc[bar_ts, "Close"])
+                                if bh < 9 or (bh == 9 and bm < 30):
+                                    pre_last  = price
+                                elif (bh == 9 and bm >= 30) or (10 <= bh < 16):
+                                    reg_last  = price
+                                elif 16 <= bh < 20:
+                                    post_last = price
+                                elif bh >= 20:
+                                    ovn_last  = price
+                    except Exception:
+                        pass
+                    df_1d = None
+                    try:
+                        df_1d = stock.history(period="2d", interval="1d", auto_adjust=True)
+                        if df_1d is not None and not df_1d.empty:
+                            df_1d.index = df_1d.index.tz_localize(None)
+                        else:
+                            df_1d = None
+                    except Exception:
+                        pass
+                    info = {"_reg_last_price": reg_last}
+                    if pre_last  is not None: info["_pre_last_price"]  = pre_last
+                    if post_last is not None: info["_post_last_price"] = post_last
+                    if ovn_last  is not None: info["_ovn_last_price"]  = ovn_last
+                    if ext_last  is not None: info["_ext_last_price"]  = ext_last
+                    if ext_time  is not None: info["_ext_last_time"]   = ext_time
+                    si = _si_fn(info, df_1d)
+                    si["_refreshed_at"] = now_str
+                    _analysis_cache.setdefault(s, {})["session_info"] = si
+                except Exception as e:
+                    logger.error(f"_startup_prices [{s}]: {e}")
+
+            if not cur or cur not in syms:
+                cur = syms[0]
+            data = _analysis_cache.get(cur, {})
+            si   = data.get("session_info", {})
+            owns = _owned_map.get(cur, False)
+            hero = _hero_html(cur, "N/A", si.get("_reg_last_price") or 0, {}, owns, si) if si else _hero_placeholder(cur)
+            return [
+                hero,
+                _tv_chart(cur, si), "", "", "", "",
+                "*Run analysis to see AI report.*", "",
+            ]
 
         # ── Watchlist ──────────────────────────────────────────────────────
         def do_wl_add(sym):
