@@ -607,7 +607,7 @@ def _run(ticker):
             f'<div style="color:#ef4444;padding:14px"><b>Error ({ticker}):</b> {err}</div>',
             _tv_chart(ticker), err_panel, err_panel, err_panel, err_panel,
             f"**Failed:** {err}", f"**Failed:** {err}",
-            gr.Column(visible=True),
+            gr.Accordion(visible=True),
         )
     ind  = data.get("indicators", {})
     dcf  = data.get("dcf", {})
@@ -629,7 +629,7 @@ def _run(ticker):
         _sentiment_html(sent),
         f"### 📊 {ticker} — AI Analysis\n\n" + data.get("llm_summary",""),
         f"### 📊 {ticker} — AI Analysis\n\n" + data.get("llm_summary",""),
-        gr.Column(visible=True),
+        gr.Accordion(visible=True),
     )
 
 def _render_from_data(ticker, data):
@@ -653,7 +653,7 @@ def _render_from_data(ticker, data):
         _sentiment_html(sent),
         report,
         report,  # report_state
-        gr.Column(visible=True),
+        gr.Accordion(visible=True),
     )
 
 
@@ -806,17 +806,16 @@ def build_app():
 
                 # ── Shared analysis panel ──────────────────────────────────
                 hero_out    = gr.HTML(_hero_placeholder())
-                with gr.Column(visible=False) as panels_col:
-                    chart_out   = gr.HTML()
-                    signals_out = gr.HTML()
-                    levels_out  = gr.HTML()
-                    fund_out    = gr.HTML()
-                    sent_out    = gr.HTML()
+                chart_out   = gr.HTML()
+                signals_out = gr.HTML()
+                levels_out  = gr.HTML()
+                fund_out    = gr.HTML()
+                sent_out    = gr.HTML()
 
-                    with gr.Accordion("AI Analysis Report", open=False):
-                        report_out   = gr.Markdown("*Run analysis to see AI report.*")
-                        rd_rep       = gr.Button("▶ READ", size="sm", variant="secondary", elem_id="rd-rep-btn")
-                        rep_tts_text = gr.Textbox(value="", elem_id="rep_tts_buf", show_label=False, visible=True)
+                with gr.Accordion("AI Analysis Report", open=False, visible=False) as report_acc:
+                    report_out   = gr.Markdown("*Run analysis to see AI report.*")
+                    rd_rep       = gr.Button("▶ READ", size="sm", variant="secondary", elem_id="rd-rep-btn")
+                    rep_tts_text = gr.Textbox(value="", elem_id="rep_tts_buf", show_label=False, visible=True)
 
                 with gr.Accordion("Ask a Question", open=False):
                     _chat_kwargs = {} if _GRADIO_MAJOR >= 6 else {"type": "messages"}
@@ -854,7 +853,7 @@ def build_app():
 
         # ── Output lists ───────────────────────────────────────────────────
         PANEL = [hero_out, chart_out, signals_out, levels_out,
-                 fund_out, sent_out, report_out, report_state, panels_col]
+                 fund_out, sent_out, report_out, report_state, report_acc]
 
         # ── Add symbol ─────────────────────────────────────────────────────
         def do_add(raw_sym, syms):
@@ -923,7 +922,7 @@ def build_app():
         _EMPTY_PANEL = [
             _hero_placeholder(),
             "", "", "", "", "", "*Run analysis to see AI report.*", "",
-            gr.Column(visible=False),
+            gr.Accordion(visible=False),
         ]
 
         def _panel_after_delete(syms, cur):
@@ -937,7 +936,7 @@ def build_app():
             return [
                 _hero_placeholder(cur),
                 "", "", "", "", "", "*Run analysis to see AI report.*", "",
-                gr.Column(visible=False),
+                gr.Accordion(visible=False),
             ]
 
         for i, btn in enumerate(del_tab_btns):
@@ -983,7 +982,7 @@ def build_app():
         def do_refresh(sym):
             sym = (sym or "").strip().upper()
             if not sym:
-                return [gr.update()] * 8 + [gr.Column(visible=False)]
+                return [gr.update()] * 8 + [gr.Accordion(visible=False)]
             _analysis_cache.pop(sym, None)
             result = list(_run(sym))
             save_session(list(_analysis_cache.keys()), _owned_map, _watchlist, snapshots=_analysis_cache)
@@ -1091,7 +1090,7 @@ def build_app():
             """Clear all caches, re-analyze all symbols."""
             syms = [s for s in list(syms) if s]
             if not syms:
-                return [gr.update()] * 8 + [gr.Column(visible=False)]
+                return [gr.update()] * 8 + [gr.Accordion(visible=False)]
             for s in syms:
                 _analysis_cache.pop(s, None)
                 _run(s)
@@ -1101,7 +1100,7 @@ def build_app():
                 show = syms[0]
             data = _analysis_cache.get(show)
             if not data:
-                return [gr.update()] * 8 + [gr.Column(visible=False)]
+                return [gr.update()] * 8 + [gr.Accordion(visible=False)]
             return list(_render_from_data(show, data))
 
         def on_sym_change(sym):
@@ -1111,7 +1110,7 @@ def build_app():
                     _hero_placeholder(),
                     "", "", "", "", "",
                     "*Run analysis to see AI report.*", "",
-                    gr.Column(visible=False),
+                    gr.Accordion(visible=False),
                 ]
             data = _analysis_cache.get(sym)
             if not data:
@@ -1119,7 +1118,7 @@ def build_app():
                     _hero_placeholder(sym),
                     "", "", "", "", "",
                     "*Run analysis to see AI report.*", "",
-                    gr.Column(visible=False),
+                    gr.Accordion(visible=False),
                 ]
             return list(_render_from_data(sym, data))
 
