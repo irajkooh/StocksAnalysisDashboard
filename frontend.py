@@ -570,6 +570,27 @@ def _wrap_plotly(html: str) -> str:
     )
 
 
+def _hero_placeholder(sym=""):
+    """Styled hero placeholder before analysis."""
+    if not sym:
+        return (
+            '<div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;'
+            'padding:32px 20px;text-align:center;margin-bottom:8px">'
+            '<div style="color:#64748b;font-size:14px;margin-bottom:6px">'
+            '📊 Select a tab above and click <b style="color:#38bdf8">Analyze Stock</b></div>'
+            '<div style="color:#475569;font-size:11px">'
+            'Chart, signals, fundamentals, sentiment, and AI report will appear here</div></div>'
+        )
+    return (
+        '<div style="background:#0f172a;border:1px solid #1e293b;border-radius:10px;'
+        'padding:32px 20px;text-align:center;margin-bottom:8px">'
+        f'<div style="color:#38bdf8;font-size:18px;font-weight:700;'
+        f'font-family:monospace;margin-bottom:8px">{sym}</div>'
+        '<div style="color:#64748b;font-size:13px">'
+        'Click <b style="color:#38bdf8">Analyze Stock</b> to load chart, signals, '
+        'fundamentals, sentiment &amp; AI report</div></div>'
+    )
+
 
 def _run(ticker):
     owns = _owned_map.get(ticker, False)
@@ -784,27 +805,18 @@ def build_app():
 
 
                 # ── Shared analysis panel ──────────────────────────────────
-                hero_out    = gr.HTML(
-                    '<div style="color:#475569;padding:12px">'
-                    'Select a tab above, then click <b>Analyze Stock</b> to analyze.</div>'
-                )
-                chart_out   = gr.HTML(
-                    '<div style="min-height:480px;background:#0f172a;border-radius:8px;'
-                    'border:1px solid #1e293b;display:flex;align-items:center;'
-                    'justify-content:center">'
-                    '<span style="color:#334155;font-size:13px">'
-                    'Chart will appear after analysis</span></div>'
-                )
+                hero_out    = gr.HTML(_hero_placeholder())
                 with gr.Column(visible=False) as panels_col:
+                    chart_out   = gr.HTML()
                     signals_out = gr.HTML()
                     levels_out  = gr.HTML()
                     fund_out    = gr.HTML()
                     sent_out    = gr.HTML()
 
-                with gr.Accordion("AI Analysis Report", open=False):
-                    report_out   = gr.Markdown("*Run analysis to see AI report.*")
-                    rd_rep       = gr.Button("▶ READ", size="sm", variant="secondary", elem_id="rd-rep-btn")
-                    rep_tts_text = gr.Textbox(value="", elem_id="rep_tts_buf", show_label=False, visible=True)
+                    with gr.Accordion("AI Analysis Report", open=False):
+                        report_out   = gr.Markdown("*Run analysis to see AI report.*")
+                        rd_rep       = gr.Button("▶ READ", size="sm", variant="secondary", elem_id="rd-rep-btn")
+                        rep_tts_text = gr.Textbox(value="", elem_id="rep_tts_buf", show_label=False, visible=True)
 
                 with gr.Accordion("Ask a Question", open=False):
                     _chat_kwargs = {} if _GRADIO_MAJOR >= 6 else {"type": "messages"}
@@ -909,7 +921,7 @@ def build_app():
                     *_tab_updates(syms), *_own_chk_updates(syms))
 
         _EMPTY_PANEL = [
-            '<div style="color:#475569;padding:12px">Select a tab above, then click <b>Analyze Stock</b> to analyze.</div>',
+            _hero_placeholder(),
             "", "", "", "", "", "*Run analysis to see AI report.*", "",
             gr.update(visible=False),
         ]
@@ -923,8 +935,8 @@ def build_app():
             if data:
                 return list(_render_from_data(cur, data))
             return [
-                f'<div style="color:#475569;padding:12px"><b>{cur}</b> — Click <b>Analyze Stock</b> to analyze.</div>',
-                _tv_chart(cur, {}), "", "", "", "", "*Run analysis to see AI report.*", "",
+                _hero_placeholder(cur),
+                "", "", "", "", "", "*Run analysis to see AI report.*", "",
                 gr.update(visible=False),
             ]
 
@@ -1096,7 +1108,7 @@ def build_app():
             sym = (sym or "").strip().upper()
             if not sym:
                 return [
-                    '<div style="color:#475569;padding:12px">Select a tab above, then click <b>Analyze Stock</b> to analyze.</div>',
+                    _hero_placeholder(),
                     "", "", "", "", "",
                     "*Run analysis to see AI report.*", "",
                     gr.update(visible=False),
@@ -1104,8 +1116,8 @@ def build_app():
             data = _analysis_cache.get(sym)
             if not data:
                 return [
-                    f'<div style="color:#475569;padding:12px"><b>{sym}</b> — Click <b>Analyze Stock</b> to analyze.</div>',
-                    _tv_chart(sym, {}), "", "", "", "",
+                    _hero_placeholder(sym),
+                    "", "", "", "", "",
                     "*Run analysis to see AI report.*", "",
                     gr.update(visible=False),
                 ]
@@ -1319,56 +1331,6 @@ def build_app():
             _watchlist.extend(sess.get("watchlist") or list(DEFAULT_WATCHLIST))
             _analysis_cache.clear()
             _analysis_cache.update(sess.get("snapshots", {}))
-
-            # Refresh session_info for all cached symbols so pre/post-market
-            # prices are always current at startup (not stale from session.json).
-            if syms:
-                try:
-                    import yfinance as yf
-                    from agents.technical_agent import _session_info as _si_fn
-                    for s in syms:
-                        try:
-                            stock = yf.Ticker(s)
-                            info = {}
-                            pre_last = post_last = ovn_last = None
-                            try:
-                                df_1m = stock.history(period="1d", interval="1m", prepost=True)
-                                if df_1m is not None and not df_1m.empty:
-                                    info["_ext_last_price"] = float(df_1m["Close"].iloc[-1])
-                                    ts = df_1m.index[-1]
-                                    h, m = ts.hour, ts.minute
-                                    ap = "AM" if h < 12 else "PM"
-                                    info["_ext_last_time"] = f"{h % 12 or 12}:{m:02d} {ap} ET"
-                                    for bar_ts in df_1m.index:
-                                        bh, bm = bar_ts.hour, bar_ts.minute
-                                        price  = float(df_1m.loc[bar_ts, "Close"])
-                                        if bh < 9 or (bh == 9 and bm < 30):
-                                            pre_last = price
-                                        elif 16 <= bh < 20:
-                                            post_last = price
-                                        elif bh >= 20:
-                                            ovn_last = price
-                            except Exception:
-                                pass
-                            if pre_last  is not None: info["_pre_last_price"]  = pre_last
-                            if post_last is not None: info["_post_last_price"] = post_last
-                            if ovn_last  is not None: info["_ovn_last_price"]  = ovn_last
-                            df_1d = None
-                            try:
-                                df_1d = stock.history(period="2d", interval="1d", auto_adjust=True)
-                                if df_1d is not None and not df_1d.empty:
-                                    df_1d.index = df_1d.index.tz_localize(None)
-                                else:
-                                    df_1d = None
-                            except Exception:
-                                pass
-                            si = _si_fn(info, df_1d)
-                            if s in _analysis_cache:
-                                _analysis_cache[s]["session_info"] = si
-                        except Exception as e:
-                            logger.debug(f"Startup price refresh [{s}]: {e}")
-                except Exception as e:
-                    logger.warning(f"Startup price refresh failed: {e}")
 
             ref  = sess.get("refresh_interval", "Off")
             secs = str(REFRESH_OPTIONS.get(ref, 0))
