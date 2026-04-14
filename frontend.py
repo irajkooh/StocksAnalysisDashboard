@@ -570,14 +570,39 @@ def _wrap_plotly(html: str) -> str:
     )
 
 
+def _panel_placeholder(label=""):
+    """Styled placeholder shown before analysis is run."""
+    msg = f"{label} — " if label else ""
+    return (
+        '<div style="min-height:60px;background:#0f172a;border:1px solid #1e293b;'
+        'border-radius:8px;display:flex;align-items:center;justify-content:center;'
+        'margin-bottom:6px">'
+        f'<span style="color:#475569;font-size:12px">{msg}Click <b>Analyze Stock</b> to load</span></div>'
+    )
+
+_PLACEHOLDER_PANELS = (
+    _panel_placeholder("Key Signals"),
+    _panel_placeholder("Support / Resistance"),
+    _panel_placeholder("Fundamentals"),
+    _panel_placeholder("Sentiment"),
+)
+
+
 def _run(ticker):
     owns = _owned_map.get(ticker, False)
     data = _analyze_api(ticker, owns)
     if not data or (data.get("errors") and not data.get("indicators")):
         err = "; ".join(data.get("errors", ["Unknown error"]))
+        err_panel = (
+            '<div style="min-height:60px;background:#1a0000;border:1px solid #7f1d1d;'
+            'border-radius:8px;display:flex;align-items:center;justify-content:center;'
+            'margin-bottom:6px">'
+            f'<span style="color:#fca5a5;font-size:12px">Analysis failed: {err}</span></div>'
+        )
         return (
             f'<div style="color:#ef4444;padding:14px"><b>Error ({ticker}):</b> {err}</div>',
-            _tv_chart(ticker), "", "", "", "", f"**Failed:** {err}", f"**Failed:** {err}"
+            _tv_chart(ticker), err_panel, err_panel, err_panel, err_panel,
+            f"**Failed:** {err}", f"**Failed:** {err}"
         )
     ind  = data.get("indicators", {})
     dcf  = data.get("dcf", {})
@@ -784,10 +809,10 @@ def build_app():
                     '<span style="color:#334155;font-size:13px">'
                     'Chart will appear after analysis</span></div>'
                 )
-                signals_out = gr.HTML('<div style="min-height:60px"></div>')
-                levels_out  = gr.HTML('<div style="min-height:60px"></div>')
-                fund_out    = gr.HTML('<div style="min-height:60px"></div>')
-                sent_out    = gr.HTML('<div style="min-height:60px"></div>')
+                signals_out = gr.HTML(_PLACEHOLDER_PANELS[0])
+                levels_out  = gr.HTML(_PLACEHOLDER_PANELS[1])
+                fund_out    = gr.HTML(_PLACEHOLDER_PANELS[2])
+                sent_out    = gr.HTML(_PLACEHOLDER_PANELS[3])
 
                 with gr.Accordion("AI Analysis Report", open=False):
                     report_out   = gr.Markdown("*Run analysis to see AI report.*")
@@ -1083,13 +1108,14 @@ def build_app():
             if not sym:
                 return [
                     '<div style="color:#475569;padding:12px">Select a tab above, then click <b>Analyze Stock</b> to analyze.</div>',
-                    "", "", "", "", "", "*Run analysis to see AI report.*", "",
+                    "", *_PLACEHOLDER_PANELS,
+                    "*Run analysis to see AI report.*", "",
                 ]
             data = _analysis_cache.get(sym)
             if not data:
                 return [
                     f'<div style="color:#475569;padding:12px"><b>{sym}</b> — Click <b>Analyze Stock</b> to analyze.</div>',
-                    _tv_chart(sym, {}), "", "", "", "",
+                    _tv_chart(sym, {}), *_PLACEHOLDER_PANELS,
                     "*Run analysis to see AI report.*", "",
                 ]
             return list(_render_from_data(sym, data))

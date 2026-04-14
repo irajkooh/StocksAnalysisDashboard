@@ -1,7 +1,7 @@
 # ── Core ──────────────────────────────────────────────────────────────────────
 # Packages below marked "local only" are injected by HF Spaces — uncomment when installing locally.
 # fastapi>=0.135.0          # local only — HF Spaces injects fastapi<0.113.0
-# gradio>=6.9.0             # HF Spaces injects gradio per sdk_version in README (now 6.9.0)
+# gradio>=6.9.0             # HF Spaces injects gradio per sdk_version in README (5.25.0)
 # uvicorn[standard]>=0.42.0 # local only — HF Spaces injects uvicorn>=0.14.0
 # pydantic>=2.12.0          # local only — HF Spaces gradio pins pydantic<2.12
 
