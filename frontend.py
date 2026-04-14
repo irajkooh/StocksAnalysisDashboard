@@ -570,23 +570,6 @@ def _wrap_plotly(html: str) -> str:
     )
 
 
-def _panel_placeholder(label=""):
-    """Styled placeholder shown before analysis is run."""
-    msg = f"{label} — " if label else ""
-    return (
-        '<div style="min-height:60px;background:#0f172a;border:1px solid #1e293b;'
-        'border-radius:8px;display:flex;align-items:center;justify-content:center;'
-        'margin-bottom:6px">'
-        f'<span style="color:#475569;font-size:12px">{msg}Click <b>Analyze Stock</b> to load</span></div>'
-    )
-
-_PLACEHOLDER_PANELS = (
-    _panel_placeholder("Key Signals"),
-    _panel_placeholder("Support / Resistance"),
-    _panel_placeholder("Fundamentals"),
-    _panel_placeholder("Sentiment"),
-)
-
 
 def _run(ticker):
     owns = _owned_map.get(ticker, False)
@@ -602,7 +585,8 @@ def _run(ticker):
         return (
             f'<div style="color:#ef4444;padding:14px"><b>Error ({ticker}):</b> {err}</div>',
             _tv_chart(ticker), err_panel, err_panel, err_panel, err_panel,
-            f"**Failed:** {err}", f"**Failed:** {err}"
+            f"**Failed:** {err}", f"**Failed:** {err}",
+            gr.update(visible=True),
         )
     ind  = data.get("indicators", {})
     dcf  = data.get("dcf", {})
@@ -624,6 +608,7 @@ def _run(ticker):
         _sentiment_html(sent),
         f"### 📊 {ticker} — AI Analysis\n\n" + data.get("llm_summary",""),
         f"### 📊 {ticker} — AI Analysis\n\n" + data.get("llm_summary",""),
+        gr.update(visible=True),
     )
 
 def _render_from_data(ticker, data):
@@ -647,6 +632,7 @@ def _render_from_data(ticker, data):
         _sentiment_html(sent),
         report,
         report,  # report_state
+        gr.update(visible=True),
     )
 
 
@@ -809,10 +795,11 @@ def build_app():
                     '<span style="color:#334155;font-size:13px">'
                     'Chart will appear after analysis</span></div>'
                 )
-                signals_out = gr.HTML(_PLACEHOLDER_PANELS[0])
-                levels_out  = gr.HTML(_PLACEHOLDER_PANELS[1])
-                fund_out    = gr.HTML(_PLACEHOLDER_PANELS[2])
-                sent_out    = gr.HTML(_PLACEHOLDER_PANELS[3])
+                with gr.Column(visible=False) as panels_col:
+                    signals_out = gr.HTML()
+                    levels_out  = gr.HTML()
+                    fund_out    = gr.HTML()
+                    sent_out    = gr.HTML()
 
                 with gr.Accordion("AI Analysis Report", open=False):
                     report_out   = gr.Markdown("*Run analysis to see AI report.*")
@@ -855,7 +842,7 @@ def build_app():
 
         # ── Output lists ───────────────────────────────────────────────────
         PANEL = [hero_out, chart_out, signals_out, levels_out,
-                 fund_out, sent_out, report_out, report_state]
+                 fund_out, sent_out, report_out, report_state, panels_col]
 
         # ── Add symbol ─────────────────────────────────────────────────────
         def do_add(raw_sym, syms):
@@ -924,6 +911,7 @@ def build_app():
         _EMPTY_PANEL = [
             '<div style="color:#475569;padding:12px">Select a tab above, then click <b>Analyze Stock</b> to analyze.</div>',
             "", "", "", "", "", "*Run analysis to see AI report.*", "",
+            gr.update(visible=False),
         ]
 
         def _panel_after_delete(syms, cur):
@@ -937,6 +925,7 @@ def build_app():
             return [
                 f'<div style="color:#475569;padding:12px"><b>{cur}</b> — Click <b>Analyze Stock</b> to analyze.</div>',
                 _tv_chart(cur, {}), "", "", "", "", "*Run analysis to see AI report.*", "",
+                gr.update(visible=False),
             ]
 
         for i, btn in enumerate(del_tab_btns):
@@ -982,7 +971,7 @@ def build_app():
         def do_refresh(sym):
             sym = (sym or "").strip().upper()
             if not sym:
-                return [gr.update()] * 8
+                return [gr.update()] * 9
             _analysis_cache.pop(sym, None)
             result = list(_run(sym))
             save_session(list(_analysis_cache.keys()), _owned_map, _watchlist, snapshots=_analysis_cache)
@@ -1090,7 +1079,7 @@ def build_app():
             """Clear all caches, re-analyze all symbols."""
             syms = [s for s in list(syms) if s]
             if not syms:
-                return [gr.update()] * 8
+                return [gr.update()] * 9
             for s in syms:
                 _analysis_cache.pop(s, None)
                 _run(s)
@@ -1100,7 +1089,7 @@ def build_app():
                 show = syms[0]
             data = _analysis_cache.get(show)
             if not data:
-                return [gr.update()] * 8
+                return [gr.update()] * 9
             return list(_render_from_data(show, data))
 
         def on_sym_change(sym):
@@ -1108,15 +1097,17 @@ def build_app():
             if not sym:
                 return [
                     '<div style="color:#475569;padding:12px">Select a tab above, then click <b>Analyze Stock</b> to analyze.</div>',
-                    "", *_PLACEHOLDER_PANELS,
+                    "", "", "", "", "",
                     "*Run analysis to see AI report.*", "",
+                    gr.update(visible=False),
                 ]
             data = _analysis_cache.get(sym)
             if not data:
                 return [
                     f'<div style="color:#475569;padding:12px"><b>{sym}</b> — Click <b>Analyze Stock</b> to analyze.</div>',
-                    _tv_chart(sym, {}), *_PLACEHOLDER_PANELS,
+                    _tv_chart(sym, {}), "", "", "", "",
                     "*Run analysis to see AI report.*", "",
+                    gr.update(visible=False),
                 ]
             return list(_render_from_data(sym, data))
 
