@@ -138,8 +138,7 @@ def get_price(ticker: str):
         stock = yf.Ticker(ticker)
 
         # 1-min bars with prepost=True — last Close is always the most recent trade
-        ext_last = None
-        ext_time = None
+        ext_last = ext_time = pre_last = reg_last = post_last = ovn_last = None
         try:
             df_1m = stock.history(period="1d", interval="1m", prepost=True,
                                   raise_errors=False)
@@ -151,6 +150,15 @@ def get_price(ticker: str):
                     ampm = "AM" if h < 12 else "PM"
                     h12  = h % 12 or 12
                     ext_time = f"{h12}:{m:02d} {ampm} ET"
+                    # Classify last bar into its trading session
+                    if h < 9 or (h == 9 and m < 30):
+                        pre_last  = ext_last  # Pre-market:  4:00–9:30 AM ET
+                    elif (h == 9 and m >= 30) or (10 <= h < 16):
+                        reg_last  = ext_last  # Regular:     9:30 AM–4:00 PM ET
+                    elif 16 <= h < 20:
+                        post_last = ext_last  # After-hours: 4:00–8:00 PM ET
+                    elif h >= 20:
+                        ovn_last  = ext_last  # Overnight:   8:00 PM+ ET
                 except Exception:
                     pass
         except Exception:
@@ -169,10 +177,12 @@ def get_price(ticker: str):
 
         # Minimal info dict — skip slow stock.info entirely
         info = {}
-        if ext_last is not None:
-            info["_ext_last_price"] = ext_last
-        if ext_time is not None:
-            info["_ext_last_time"] = ext_time
+        if ext_last  is not None: info["_ext_last_price"]  = ext_last
+        if ext_time  is not None: info["_ext_last_time"]   = ext_time
+        if pre_last  is not None: info["_pre_last_price"]  = pre_last
+        if reg_last  is not None: info["_reg_last_price"]  = reg_last
+        if post_last is not None: info["_post_last_price"] = post_last
+        if ovn_last  is not None: info["_ovn_last_price"]  = ovn_last
 
         si = _session_info(info, df_1d)
         _price_cache[ticker] = {"_ts": time.time(), "data": si}

@@ -74,6 +74,17 @@ def data_agent(state: AnalysisState) -> AnalysisState:
                     ampm = "AM" if h < 12 else "PM"
                     h12  = h % 12 or 12
                     info["_ext_last_time"] = f"{h12}:{m:02d} {ampm} ET"
+                    # Classify last bar into its trading session so _session_info
+                    # shows the correct live price pill without needing yfinance info fields.
+                    p = info["_ext_last_price"]
+                    if h < 9 or (h == 9 and m < 30):
+                        info["_pre_last_price"]  = p  # Pre-market:  4:00–9:30 AM ET
+                    elif (h == 9 and m >= 30) or (10 <= h < 16):
+                        info["_reg_last_price"]  = p  # Regular:     9:30 AM–4:00 PM ET
+                    elif 16 <= h < 20:
+                        info["_post_last_price"] = p  # After-hours: 4:00–8:00 PM ET
+                    elif h >= 20:
+                        info["_ovn_last_price"]  = p  # Overnight:   8:00 PM+ ET
                 except Exception:
                     pass
         except Exception:
