@@ -1330,10 +1330,11 @@ def build_app():
             _watchlist.clear()
             _watchlist.extend(sess.get("watchlist") or list(DEFAULT_WATCHLIST))
             _analysis_cache.clear()
-            _analysis_cache.update(sess.get("snapshots", {}))
+            # Don't restore cached snapshots — panels stay hidden until
+            # the user explicitly clicks Analyze Stock.
 
-            ref  = sess.get("refresh_interval", "Off")
-            secs = str(REFRESH_OPTIONS.get(ref, 0))
+            ref  = "Off"   # never auto-analyze on startup
+            secs = "0"
             first_sym = syms[0] if syms else ""
             wl_update = gr.update(choices=list(_watchlist), value=None)
             return [syms, ref, secs, first_sym, wl_update] + list(_tab_updates(syms)) + list(_own_chk_updates(syms))
