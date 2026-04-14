@@ -137,7 +137,7 @@ def _c(label, value, color="#38bdf8", sub=None, full_name=None, fill=False, sub_
     s = f'<div style="color:{sub_color};font-size:10px;margin-top:2px">{sub}</div>' if sub else ""
     if full_name:
         lbl_html = (
-            f'<span style="color:#facc15;font-size:9px;font-weight:700;letter-spacing:1px">{label}</span>'
+            f'<span style="color:#38bdf8;font-size:9px;font-weight:700;letter-spacing:1px">{label}</span>'
             f'<br><span style="color:#38bdf8;font-size:8px;letter-spacing:0">{full_name}</span>'
         )
     else:
@@ -299,6 +299,11 @@ def _signals_html(decision, indicators, risk):
     sharpe_sc    = "#22c55e" if sharpe > 1 else "#facc15" if sharpe >= 0 else "#ef4444"
     risk_label   = risk.get("risk_label", "")
     risk_sc      = "#22c55e" if risk_score <= 3 else "#facc15" if risk_score <= 6 else "#ef4444"
+    atr      = indicators.get("atr", 0)
+    price_ref = indicators.get("price") or 1
+    atr_pct  = atr / price_ref * 100
+    atr_state = "Low" if atr_pct < 2 else "Moderate" if atr_pct < 5 else "High"
+    atr_sc    = "#22c55e" if atr_pct < 2 else "#facc15" if atr_pct < 5 else "#ef4444"
     def dc(r):
         t = r.lower()
         if any(w in t for w in ["bull","buy","above","under","oversold"]): return "#22c55e"
@@ -308,12 +313,12 @@ def _signals_html(decision, indicators, risk):
         f'<div style="color:#cbd5e1;font-size:12px;padding:3px 0;border-bottom:1px solid #1e293b">'
         f'<span style="color:{dc(r)}">&#9679;</span> {r}</div>' for r in reasons)
     cards = (
-        _c("RSI",    f"{rsi:.1f}",    rc,        rsi_state,   "Relative Strength Index", fill=True, sub_color=rsi_sc)
-        + _c("ATR",  f'${indicators.get("atr",0):.2f}', "#facc15", "14-Period", "Average True Range",  fill=True)
-        + _c("StochK",f"{stoch_k:.1f}", stoch_sc, stoch_state, "Stochastic %K",          fill=True, sub_color=stoch_sc)
-        + _c("VolAnn",f"{vol_ann:.1f}%", vol_sc,    vol_state,  "Annualized Volatility",  fill=True, sub_color=vol_sc)
-        + _c("Sharpe",f"{sharpe:.2f}",  sharpe_sc, sharpe_state, "Sharpe Ratio",          fill=True, sub_color=sharpe_sc)
-        + _c("Risk",  f"{risk_score}/10", risk_sc,  risk_label, "Risk Score",            fill=True, sub_color=risk_sc)
+        _c("RSI",    f"{rsi:.1f}",           rsi_sc,    rsi_state,    "Relative Strength Index", fill=True, sub_color=rsi_sc)
+        + _c("ATR",  f'${atr:.2f}',  atr_sc, atr_state, "Average True Range", fill=True, sub_color=atr_sc)
+        + _c("StochK",f"{stoch_k:.1f}",      stoch_sc,  stoch_state,  "Stochastic %K",          fill=True, sub_color=stoch_sc)
+        + _c("VolAnn",f"{vol_ann:.1f}%",     vol_sc,    vol_state,    "Annualized Volatility",   fill=True, sub_color=vol_sc)
+        + _c("Sharpe",f"{sharpe:.2f}",       sharpe_sc, sharpe_state, "Sharpe Ratio",            fill=True, sub_color=sharpe_sc)
+        + _c("Risk",  f"{risk_score}/10",    risk_sc,   risk_label,   "Risk Score",              fill=True, sub_color=risk_sc)
     )
     return (
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
