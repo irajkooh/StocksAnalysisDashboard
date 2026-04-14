@@ -133,13 +133,20 @@ def _status_bar():
         '</div>'
     )
 
-def _c(label, value, color="#38bdf8", sub=None):
-    s = f'<div style="color:#64748b;font-size:10px;margin-top:2px">{sub}</div>' if sub else ""
+def _c(label, value, color="#38bdf8", sub=None, full_name=None, fill=False, sub_color="#64748b"):
+    s = f'<div style="color:{sub_color};font-size:10px;margin-top:2px">{sub}</div>' if sub else ""
+    if full_name:
+        lbl_html = (
+            f'<span style="color:#facc15;font-size:9px;font-weight:700;letter-spacing:1px">{label}</span>'
+            f'<br><span style="color:#38bdf8;font-size:8px;letter-spacing:0">{full_name}</span>'
+        )
+    else:
+        lbl_html = f'<span style="color:#64748b;font-size:9px;text-transform:uppercase;letter-spacing:1px">{label}</span>'
+    box_style = "width:100%;box-sizing:border-box" if fill else "min-width:80px;display:inline-block;margin:2px"
     return (
         f'<div style="background:#1e293b;border:1px solid #334155;border-radius:8px;'
-        f'padding:8px 12px;text-align:center;min-width:80px;display:inline-block;margin:2px">'
-        f'<div style="color:#64748b;font-size:9px;text-transform:uppercase;'
-        f'letter-spacing:1px;margin-bottom:3px">{label}</div>'
+        f'padding:8px 12px;text-align:center;{box_style}">'
+        f'<div style="margin-bottom:3px">{lbl_html}</div>'
         f'<div style="color:{color};font-size:14px;font-weight:700">{value}</div>{s}</div>'
     )
 
@@ -276,8 +283,22 @@ def _signals_html(decision, indicators, risk):
     pp   = decision.get("probability_profit", 50)
     pl   = decision.get("probability_loss", 50)
     conf = decision.get("confidence", 0)
-    rsi  = indicators.get("rsi", 50)
+    rsi     = indicators.get("rsi", 50)
+    stoch_k = indicators.get("stoch_k", 50)
+    vol_ann = risk.get("annual_volatility", 0)
+    sharpe  = risk.get("sharpe_ratio", 0)
+    risk_score = risk.get("risk_score", 5)
     rc   = "#22c55e" if rsi < 35 else "#ef4444" if rsi > 65 else "#facc15"
+    rsi_state  = indicators.get("rsi_state", "")
+    rsi_sc     = "#22c55e" if rsi < 35 else "#ef4444" if rsi > 65 else "#facc15"
+    stoch_state = "Oversold" if stoch_k < 20 else "Overbought" if stoch_k > 80 else "Neutral"
+    stoch_sc    = "#22c55e" if stoch_k < 20 else "#ef4444" if stoch_k > 80 else "#facc15"
+    vol_state   = "Low" if vol_ann < 20 else "Moderate" if vol_ann < 40 else "High" if vol_ann < 70 else "Very High"
+    vol_sc      = "#22c55e" if vol_ann < 20 else "#facc15" if vol_ann < 40 else "#ef4444"
+    sharpe_state = "Good" if sharpe > 1 else "Fair" if sharpe >= 0 else "Poor"
+    sharpe_sc    = "#22c55e" if sharpe > 1 else "#facc15" if sharpe >= 0 else "#ef4444"
+    risk_label   = risk.get("risk_label", "")
+    risk_sc      = "#22c55e" if risk_score <= 3 else "#facc15" if risk_score <= 6 else "#ef4444"
     def dc(r):
         t = r.lower()
         if any(w in t for w in ["bull","buy","above","under","oversold"]): return "#22c55e"
@@ -287,12 +308,12 @@ def _signals_html(decision, indicators, risk):
         f'<div style="color:#cbd5e1;font-size:12px;padding:3px 0;border-bottom:1px solid #1e293b">'
         f'<span style="color:{dc(r)}">&#9679;</span> {r}</div>' for r in reasons)
     cards = (
-        _c("RSI",    f"{rsi:.1f}",                              rc, indicators.get("rsi_state",""))
-        + _c("ATR",  f'${indicators.get("atr",0):.2f}',         "#fb923c")
-        + _c("StochK",f'{indicators.get("stoch_k",50):.1f}',    "#a78bfa")
-        + _c("VolAnn",f'{risk.get("annual_volatility",0):.1f}%', "#f43f5e")
-        + _c("Sharpe",f'{risk.get("sharpe_ratio",0):.2f}',       "#22c55e")
-        + _c("Risk",  f'{risk.get("risk_score",5)}/10',          "#fb923c", risk.get("risk_label",""))
+        _c("RSI",    f"{rsi:.1f}",    rc,        rsi_state,   "Relative Strength Index", fill=True, sub_color=rsi_sc)
+        + _c("ATR",  f'${indicators.get("atr",0):.2f}', "#facc15", "14-Period", "Average True Range",  fill=True)
+        + _c("StochK",f"{stoch_k:.1f}", stoch_sc, stoch_state, "Stochastic %K",          fill=True, sub_color=stoch_sc)
+        + _c("VolAnn",f"{vol_ann:.1f}%", "#ef4444", vol_state,  "Annualized Volatility",  fill=True, sub_color=vol_sc)
+        + _c("Sharpe",f"{sharpe:.2f}",  "#22c55e", sharpe_state, "Sharpe Ratio",          fill=True, sub_color=sharpe_sc)
+        + _c("Risk",  f"{risk_score}/10", "#ef4444", risk_label, "Risk Score",            fill=True, sub_color=risk_sc)
     )
     return (
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
@@ -301,7 +322,7 @@ def _signals_html(decision, indicators, risk):
         + rows +
         '</div><div style="background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px">'
         '<div style="color:#38bdf8;font-weight:700;font-size:12px;margin-bottom:6px">INDICATORS</div>'
-        f'<div style="display:flex;flex-wrap:wrap;gap:3px">{cards}</div>'
+        f'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">{cards}</div>'
         '</div></div>'
         '<div style="background:#1e293b;border:1px solid #334155;border-radius:10px;'
         'padding:12px;margin-bottom:10px">'

@@ -57,9 +57,9 @@ def risk_agent(state: AnalysisState) -> AnalysisState:
         risk_score = _compute_risk_score(annual_vol, max_drawdown, beta, short_pct)
 
         risk_label = (
-            "Low Risk 🟢"    if risk_score <= 3 else
-            "Moderate Risk 🟡" if risk_score <= 6 else
-            "High Risk 🔴"
+            "Low Risk"      if risk_score <= 3 else
+            "Moderate Risk" if risk_score <= 6 else
+            "High Risk"
         )
 
         return {
