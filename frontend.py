@@ -188,22 +188,25 @@ def _hero_html(ticker, action, price, dcf, owns, session_info=None):
              'font-size:11px;margin-left:8px">I OWN</b>') if owns else ""
     sess = _session_pills(session_info or {})
 
-    # Pick the most current available price: post-market → pre-market → regular
+    # Pick the most current available price based on the active session.
+    # current_session reflects the session of the most recently traded bar,
+    # preventing stale pre-market prices from showing during regular hours.
     si = session_info or {}
-    if si.get("post_price") is not None:
+    cs = si.get("current_session", "regular")
+    if si.get("post_price") is not None and cs in ("post", "overnight"):
         live_price  = si["post_price"]
         live_change = si.get("post_change")
         live_pct    = si.get("post_pct")
         sess_label  = "After-Hours"
         sess_color  = "#a78bfa"
-    elif si.get("pre_price") is not None:
+    elif si.get("pre_price") is not None and cs == "pre":
         live_price  = si["pre_price"]
         live_change = si.get("pre_change")
         live_pct    = si.get("pre_pct")
         sess_label  = "Pre-Market"
         sess_color  = "#60a5fa"
     else:
-        live_price  = price
+        live_price  = si.get("regular_price") or price
         live_change = si.get("regular_change")
         live_pct    = si.get("regular_pct")
         sess_label  = "Regular"
@@ -892,9 +895,11 @@ def build_app():
 
         _ADD_OUTPUTS = [sym_in, syms_state, status_msg] + tab_objs + own_chk_list
         (add_btn.click(fn=do_add, inputs=[sym_in, syms_state], outputs=_ADD_OUTPUTS)
-                .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list))
+                .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list)
+                .then(fn=lambda sym, syms: _startup_prices(sym, syms), inputs=[cur_sym, syms_state], outputs=PANEL))
         (sym_in.submit(fn=do_add, inputs=[sym_in, syms_state], outputs=_ADD_OUTPUTS)
-                .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list))
+                .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list)
+                .then(fn=lambda sym, syms: _startup_prices(sym, syms), inputs=[cur_sym, syms_state], outputs=PANEL))
 
         # ── Per-tab Delete buttons (reliable: no cur_sym race condition) ───
         def do_delete_slot(syms, idx, cur):
@@ -1461,7 +1466,8 @@ def build_app():
 
         (wl_radio.change(fn=do_wl_select, inputs=[wl_radio, syms_state],
                          outputs=[syms_state, status_msg] + tab_objs + own_chk_list)
-                 .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list))
+                 .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list)
+                 .then(fn=lambda sym, syms: _startup_prices(sym, syms), inputs=[cur_sym, syms_state], outputs=PANEL))
 
         # ── Workflow ───────────────────────────────────────────────────────
         def do_wf(vis, cached):
