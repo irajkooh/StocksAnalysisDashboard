@@ -735,9 +735,8 @@ def build_app():
             ar_secs  = gr.Textbox(value=str(REFRESH_OPTIONS.get(saved_ref, 0)),
                                   elem_id="ar_secs_input", visible=True, show_label=False, scale=0)
 
-        status_msg   = gr.HTML("")
-        browser_time = gr.Textbox(visible=False, value="")   # filled by JS before price refresh
-        wf_panel     = gr.HTML(value="", visible=False)
+        status_msg = gr.HTML("")
+        wf_panel   = gr.HTML(value="", visible=False)
         wf_vis     = gr.State(False)
         wf_cache   = gr.State("")
 
@@ -1015,7 +1014,7 @@ def build_app():
             save_session(list(_analysis_cache.keys()), _owned_map, _watchlist, snapshots=_analysis_cache)
             return result
 
-        def do_price_refresh(cur_sym_val, syms, browser_time=""):
+        def do_price_refresh(cur_sym_val, syms):
             """Fetch fresh prices for ALL open tabs directly via yfinance — no HTTP."""
             import time as _time
             import yfinance as yf
@@ -1026,15 +1025,11 @@ def build_app():
             if not syms:
                 return gr.update(), ""
 
-            # Use browser-local time when available (JS-injected); fall back to server time
-            if browser_time and browser_time.strip():
-                now_str = browser_time.strip()
-            else:
-                t       = _time.localtime()
-                h12     = t.tm_hour % 12 or 12
-                ampm    = "AM" if t.tm_hour < 12 else "PM"
-                tz      = _time.strftime("%Z")
-                now_str = f"{h12}:{t.tm_min:02d}:{t.tm_sec:02d} {ampm} {tz}"
+            t       = _time.localtime()
+            h12     = t.tm_hour % 12 or 12
+            ampm    = "AM" if t.tm_hour < 12 else "PM"
+            tz      = _time.strftime("%Z")
+            now_str = f"{h12}:{t.tm_min:02d}:{t.tm_sec:02d} {ampm} {tz}"
 
             def _fetch_si(s):
                 """Return a fresh session_info dict for symbol s."""
@@ -1171,18 +1166,7 @@ def build_app():
                 .then(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot]))
         (ref_all.click(fn=do_refresh_all, inputs=[syms_state, cur_sym], outputs=PANEL)
                 .then(fn=_clear_chat_all, inputs=[syms_state], outputs=[chatbot]))
-        (price_btn
-            .click(
-                fn=None,
-                js="() => new Date().toLocaleTimeString([], {hour:'numeric', minute:'2-digit', second:'2-digit', timeZoneName:'short'})",
-                outputs=[browser_time],
-            )
-            .then(
-                fn=do_price_refresh,
-                inputs=[cur_sym, syms_state, browser_time],
-                outputs=[hero_out, status_msg],
-            )
-        )
+        price_btn.click(fn=do_price_refresh, inputs=[cur_sym, syms_state], outputs=[hero_out, status_msg])
 
         cur_sym.change(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot])
 
@@ -1382,20 +1366,16 @@ def build_app():
             wl_update = gr.update(choices=list(_watchlist), value=None)
             return [syms, ref, secs, first_sym, wl_update] + list(_tab_updates(syms)) + list(_own_chk_updates(syms))
 
-        (demo.load(
+        demo.load(
             fn=_on_page_load,
             outputs=[syms_state, ref_dd, ar_secs, cur_sym, wl_radio] + tab_objs + own_chk_list,
         ).then(
-            fn=None,
-            js="() => new Date().toLocaleTimeString([], {hour:'numeric', minute:'2-digit', second:'2-digit', timeZoneName:'short'})",
-            outputs=[browser_time],
-        ).then(
-            fn=lambda sym, syms, bt: _startup_prices(sym, syms, bt),
-            inputs=[cur_sym, syms_state, browser_time],
+            fn=lambda sym, syms: _startup_prices(sym, syms),
+            inputs=[cur_sym, syms_state],
             outputs=PANEL,
-        ))
+        )
 
-        def _startup_prices(cur_sym_val, syms, browser_time=""):
+        def _startup_prices(cur_sym_val, syms):
             """Fetch live prices for all tabs at startup; render hero + chart for active tab."""
             import time as _time
             import yfinance as yf
@@ -1406,14 +1386,11 @@ def build_app():
             if not syms:
                 return [_hero_placeholder(), "", "", "", "", "", "*Run analysis to see AI report.*", ""]
 
-            if browser_time and browser_time.strip():
-                now_str = browser_time.strip()
-            else:
-                t       = _time.localtime()
-                h12     = t.tm_hour % 12 or 12
-                ampm    = "AM" if t.tm_hour < 12 else "PM"
-                tz      = _time.strftime("%Z")
-                now_str = f"{h12}:{t.tm_min:02d}:{t.tm_sec:02d} {ampm} {tz}"
+            t       = _time.localtime()
+            h12     = t.tm_hour % 12 or 12
+            ampm    = "AM" if t.tm_hour < 12 else "PM"
+            tz      = _time.strftime("%Z")
+            now_str = f"{h12}:{t.tm_min:02d}:{t.tm_sec:02d} {ampm} {tz}"
 
             for s in syms:
                 try:
