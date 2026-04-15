@@ -18,7 +18,8 @@ from utils.config import SESSION_FILE, IS_HF_SPACE, HF_TOKEN, HF_USER
 
 logger = logging.getLogger(__name__)
 
-_HF_DATASET_REPO = f"{HF_USER}/stocks-dashboard-session"
+#_HF_DATASET_REPO = f"{HF_USER}/stocks-dashboard-session"
+_HF_DATASET_REPO = f"{HF_USER}/StocksAnalysisDashboard"
 _HF_FILENAME     = "session.json"
 
 
