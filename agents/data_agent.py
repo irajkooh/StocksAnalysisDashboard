@@ -10,6 +10,39 @@ from utils.config import DEFAULT_PERIOD, DEFAULT_INTERVAL, INTRADAY_INTERVAL
 
 logger = logging.getLogger(__name__)
 
+_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
+
+
+def _make_yf_session():
+    """Return a requests.Session with a browser User-Agent.
+    Prevents Yahoo Finance from blocking datacenter IPs (e.g. HF Spaces)."""
+    try:
+        import requests as _req
+        s = _req.Session()
+        s.headers["User-Agent"] = _BROWSER_UA
+        return s
+    except Exception:
+        return None
+
+
+def _fetch_info_with_retry(stock, retries=3, delay=3) -> dict:
+    """Fetch stock.info with retries; returns {} on persistent failure."""
+    for attempt in range(retries):
+        try:
+            info = stock.info
+            if info:
+                return info
+        except Exception as e:
+            logger.warning(f"stock.info attempt {attempt + 1}/{retries} failed: {e}")
+        if attempt < retries - 1:
+            time.sleep(delay)
+            delay *= 2
+    return {}
+
 
 def _fetch_with_retry(stock, period, interval, retries=3, delay=5):
     last_exc = None
@@ -42,7 +75,8 @@ def data_agent(state: AnalysisState) -> AnalysisState:
 
     try:
         import yfinance as yf
-        stock = yf.Ticker(ticker)
+        session = _make_yf_session()
+        stock = yf.Ticker(ticker, session=session) if session else yf.Ticker(ticker)
 
         # OHLCV — switch to intraday if short period requested
         if period in ("1d", "5d"):
@@ -56,11 +90,10 @@ def data_agent(state: AnalysisState) -> AnalysisState:
         df.index = df.index.tz_localize(None)
         df = df.dropna(subset=["Close"])
 
-        # Company info
-        try:
-            info = stock.info or {}
-        except Exception:
-            info = {}
+        # Company info — use retry helper to survive transient Yahoo Finance blocks
+        info = _fetch_info_with_retry(stock)
+        if not info:
+            logger.warning(f"stock.info returned empty for {ticker} after retries")
 
         # 1-min bars with prepost=True — walk ALL bars so every session's
         # last price is captured independently (pre, regular, post, overnight).
