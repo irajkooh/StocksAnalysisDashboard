@@ -177,9 +177,16 @@ def _session_pills(si: dict) -> str:
             f'{body}</div>'
         )
 
-    pre  = _pill("Pre-Market",  si.get("pre_price"),     si.get("pre_change"),     si.get("pre_pct"),     "#60a5fa")
-    reg  = _pill("Regular",     si.get("regular_price"), si.get("regular_change"), si.get("regular_pct"), "#38bdf8")
-    post = _pill("After-Hours", si.get("post_price"),    si.get("post_change"),    si.get("post_pct"),    "#a78bfa")
+    cs = si.get("current_session", "regular")
+    # During pre-market no regular-session bars exist today — suppress the pill
+    # so yesterday's OHLCV close isn't mistaken for a live regular-session price.
+    reg_p  = si.get("regular_price")  if cs != "pre" else None
+    reg_ch = si.get("regular_change") if cs != "pre" else None
+    reg_pc = si.get("regular_pct")    if cs != "pre" else None
+
+    pre  = _pill("Pre-Market",  si.get("pre_price"),       si.get("pre_change"),    si.get("pre_pct"),    "#60a5fa")
+    reg  = _pill("Regular",     reg_p,                     reg_ch,                  reg_pc,               "#38bdf8")
+    post = _pill("After-Hours", si.get("post_price"),      si.get("post_change"),   si.get("post_pct"),   "#a78bfa")
     ovn  = _pill("Overnight",   si.get("overnight_price"), si.get("overnight_change"), si.get("overnight_pct"), "#f472b6")
     return f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">{pre}{reg}{post}{ovn}</div>'
 
