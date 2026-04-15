@@ -28,19 +28,21 @@ def _hf_pull_session() -> bool:
     """Download session.json from the HF dataset into SESSION_FILE.
     Returns True on success.  No-op when not on HF Spaces or no token."""
     if not IS_HF_SPACE or not HF_TOKEN:
+        logger.info(f"HF pull skipped: IS_HF_SPACE={IS_HF_SPACE} HF_TOKEN={'set' if HF_TOKEN else 'missing'}")
         return False
+    url = f"https://huggingface.co/datasets/{_HF_DATASET_REPO}/resolve/main/{_HF_FILENAME}"
+    logger.info(f"Pulling session from {url}")
     try:
-        from huggingface_hub import hf_hub_download
-        cached = hf_hub_download(
-            repo_id=_HF_DATASET_REPO,
-            filename=_HF_FILENAME,
-            repo_type="dataset",
-            token=HF_TOKEN,
-            force_download=True,   # always fetch the latest version
-        )
-        shutil.copy2(cached, SESSION_FILE)
-        logger.info(f"Session pulled from HF Hub ({_HF_DATASET_REPO}) → {SESSION_FILE}")
-        return True
+        import requests as _requests
+        resp = _requests.get(url, headers={"Authorization": f"Bearer {HF_TOKEN}"}, timeout=15)
+        logger.info(f"HF pull HTTP {resp.status_code}")
+        if resp.status_code == 200:
+            SESSION_FILE.write_bytes(resp.content)
+            logger.info(f"Session pulled from HF Hub ({_HF_DATASET_REPO}) → {SESSION_FILE}")
+            return True
+        else:
+            logger.warning(f"HF pull failed: HTTP {resp.status_code} — {resp.text[:200]}")
+            return False
     except Exception as e:
         logger.warning(f"Could not pull session from HF Hub: {e}")
         return False
