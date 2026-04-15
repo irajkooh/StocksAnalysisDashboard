@@ -1375,18 +1375,34 @@ def build_app():
             _watchlist.clear()
             _watchlist.extend(sess.get("watchlist") or list(DEFAULT_WATCHLIST))
             _analysis_cache.clear()
-            # Don't restore cached snapshots — panels stay hidden until
-            # the user explicitly clicks Analyze Stock.
+
+            # Restore session_info (prices only) from snapshots so the hero
+            # renders immediately — analysis panels stay empty until the user
+            # clicks Analyze Stock.
+            for s, snap in sess.get("snapshots", {}).items():
+                si = snap.get("session_info")
+                if si:
+                    _analysis_cache.setdefault(s, {})["session_info"] = si
 
             ref  = "Off"   # never auto-analyze on startup
             secs = "0"
             first_sym = syms[0] if syms else ""
             wl_update = gr.update(choices=list(_watchlist), value=None)
-            return [syms, ref, secs, first_sym, wl_update] + list(_tab_updates(syms)) + list(_own_chk_updates(syms))
+
+            # Render hero + chart from cached snapshot so prices appear before
+            # _startup_prices (yfinance) completes.
+            si    = _analysis_cache.get(first_sym, {}).get("session_info", {})
+            owns  = _owned_map.get(first_sym, False)
+            hero  = _hero_html(first_sym, "N/A", 0, {}, owns, si) if si else _hero_placeholder(first_sym)
+            chart = _tv_chart(first_sym, si)
+
+            state_out = [syms, ref, secs, first_sym, wl_update] + list(_tab_updates(syms)) + list(_own_chk_updates(syms))
+            panel_out = [hero, chart, "", "", "", "", "*Run analysis to see AI report.*", ""]
+            return state_out + panel_out
 
         demo.load(
             fn=_on_page_load,
-            outputs=[syms_state, ref_dd, ar_secs, cur_sym, wl_radio] + tab_objs + own_chk_list,
+            outputs=[syms_state, ref_dd, ar_secs, cur_sym, wl_radio] + tab_objs + own_chk_list + PANEL,
         ).then(
             fn=lambda sym, syms: _startup_prices(sym, syms),
             inputs=[cur_sym, syms_state],
