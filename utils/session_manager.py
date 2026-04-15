@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, List
 from datetime import datetime, timezone
 
-from utils.config import SESSION_FILE, IS_HF_SPACE, HF_TOKEN, HF_USER
+from utils.config import SESSION_FILE, IS_HF_SPACE, HF_TOKEN, HF_WRITE_TOKEN, HF_USER
 
 logger = logging.getLogger(__name__)
 
@@ -55,14 +55,22 @@ def _hf_pull_session() -> bool:
 
 
 def _hf_push_session() -> None:
-    """Upload SESSION_FILE to the HF dataset in a daemon thread (fire-and-forget)."""
-    if not IS_HF_SPACE or not HF_TOKEN:
+    """Upload SESSION_FILE to the HF dataset in a daemon thread (fire-and-forget).
+
+    Requires a WRITE-capable token.  HF auto-injects HF_TOKEN as READ-ONLY since
+    late 2024 — upload_file() silently returns 403 with that token.
+    Set the Space secret HF_DATASET_TOKEN to a write token to enable persistence.
+    """
+    push_token = HF_WRITE_TOKEN or HF_TOKEN
+    if not IS_HF_SPACE or not push_token:
+        if IS_HF_SPACE:
+            logger.warning("HF push skipped — no token available (set HF_DATASET_TOKEN secret)")
         return
 
     def _push():
         try:
             from huggingface_hub import HfApi
-            api = HfApi(token=HF_TOKEN)
+            api = HfApi(token=push_token)
             api.create_repo(
                 repo_id=_HF_DATASET_REPO,
                 repo_type="dataset",
@@ -75,7 +83,8 @@ def _hf_push_session() -> None:
                 repo_id=_HF_DATASET_REPO,
                 repo_type="dataset",
             )
-            logger.info(f"Session pushed to HF Hub ({_HF_DATASET_REPO})")
+            token_type = "WRITE" if HF_WRITE_TOKEN else "HF_TOKEN (read-only!)"
+            logger.info(f"Session pushed to HF Hub ({_HF_DATASET_REPO}) using {token_type}")
         except Exception as e:
             logger.warning(f"Could not push session to HF Hub: {e}")
 

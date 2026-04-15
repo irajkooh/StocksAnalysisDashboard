@@ -34,7 +34,12 @@ SESSION_FILE = _resolve_session_file()
 
 # ─── Deployment ───────────────────────────────────────────────────────────────
 IS_HF_SPACE   = os.getenv("SPACE_ID") is not None
-HF_TOKEN      = os.getenv("HF_TOKEN", "")
+HF_TOKEN      = os.getenv("HF_TOKEN", "")          # auto-injected by HF Spaces as READ-ONLY
+# Write-capable token for pushing session to HF dataset.
+# HF auto-injects HF_TOKEN as read-only since late 2024 — uploads will 403 with that token.
+# Fix: create a Write token at huggingface.co/settings/tokens and add it as
+# the Space secret "HF_DATASET_TOKEN".
+HF_WRITE_TOKEN = os.getenv("HF_DATASET_TOKEN", "")  # fallback used below in session_manager
 HF_USER       = "irajkoohi"
 HF_SPACE_NAME = "StocksAnalysisDashboard"
 
