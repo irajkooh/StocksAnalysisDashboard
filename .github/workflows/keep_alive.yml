@@ -1,12 +1,12 @@
 name: Keep HF Space Alive
 
 # Two schedules:
-#   • every 30 min  — ping the HF Space to prevent sleep
+#   • every 10 min  — ping the HF Space to prevent sleep (threshold is ~15 min)
 #   • every Monday  — commit a heartbeat file so GitHub never pauses this workflow
 #                     (GitHub pauses scheduled workflows after 60 days of repo inactivity)
 on:
   schedule:
-    - cron: "*/30 * * * *"   # every 30 minutes, all day
+    - cron: "*/10 * * * *"   # every 10 minutes — safely under the ~15-min sleep threshold
     - cron: "0 9 * * 1"      # every Monday at 09:00 UTC
   workflow_dispatch:           # allow manual trigger from GitHub UI
 
@@ -23,9 +23,9 @@ jobs:
         run: |
           echo "Pinging https://irajkoohi-stocksanalysisdashboard.hf.space ..."
           STATUS=$(curl -o /dev/null -s -w "%{http_code}" \
-            --max-time 30 \
+            --max-time 60 \
             --retry 3 \
-            --retry-delay 5 \
+            --retry-delay 10 \
             https://irajkoohi-stocksanalysisdashboard.hf.space)
           echo "Response status: $STATUS"
 

@@ -168,7 +168,7 @@ def _ping_self(url: str):
 def start_keep_alive_scheduler(space_url: str):
     """
     Start an APScheduler BackgroundScheduler that pings the HF Space URL:
-      • every 30 minutes  — prevents the space from sleeping
+      • every 10 minutes  — prevents the space from sleeping (threshold is ~15 min)
       • every day at 06:00 UTC — daily warm-up task
     Only called when IS_HF_SPACE is True.
     """
@@ -178,12 +178,12 @@ def start_keep_alive_scheduler(space_url: str):
 
     scheduler = BackgroundScheduler(timezone="UTC", daemon=True)
 
-    # Ping every 30 minutes to prevent the space from going idle
+    # Ping every 10 minutes — safely under the ~15-min HF free-tier sleep threshold
     scheduler.add_job(
         _ping_self,
-        trigger=IntervalTrigger(minutes=30),
+        trigger=IntervalTrigger(minutes=10),
         args=[space_url],
-        id="keep_alive_30m",
+        id="keep_alive_10m",
         replace_existing=True,
     )
 
