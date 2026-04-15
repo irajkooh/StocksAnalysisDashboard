@@ -14,69 +14,47 @@ from pathlib import Path
 from typing import Dict, List
 from datetime import datetime, timezone
 
-from utils.config import SESSION_FILE, IS_HF_SPACE, HF_TOKEN, HF_WRITE_TOKEN, HF_USER
+from utils.config import SESSION_FILE, IS_HF_SPACE, HF_TOKEN, HF_USER
 
 logger = logging.getLogger(__name__)
 
-#_HF_DATASET_REPO = f"{HF_USER}/stocks-dashboard-session"
-_HF_DATASET_REPO = f"{HF_USER}/StocksAnalysisDashboard"
+_HF_DATASET_REPO = f"{HF_USER}/stocks-dashboard-session"
 _HF_FILENAME     = "session.json"
 
-_pulled_once = False
 
 # ─── HF Hub sync helpers ──────────────────────────────────────────────────────
 
 def _hf_pull_session() -> bool:
     """Download session.json from the HF dataset into SESSION_FILE.
-    No-op when not on HF Spaces or after the first successful pull in this
-    process. The local file stays authoritative after startup because
-    save_session() writes it in-place."""
-    global _pulled_once
-    if not IS_HF_SPACE or _pulled_once:
+    Returns True on success.  No-op when not on HF Spaces or no token."""
+    if not IS_HF_SPACE or not HF_TOKEN:
         return False
-    url = f"https://huggingface.co/datasets/{_HF_DATASET_REPO}/resolve/main/{_HF_FILENAME}"
-    logger.info(f"HF pull: IS_HF_SPACE=True HF_TOKEN={'set' if HF_TOKEN else 'missing'} url={url}")
     try:
-        import requests as _requests
-        # Try with token first (private dataset), then without (public dataset)
-        attempts = []
-        if HF_TOKEN:
-            attempts.append({"Authorization": f"Bearer {HF_TOKEN}"})
-        attempts.append({})  # no-auth attempt (works if dataset is public)
-        for headers in attempts:
-            resp = _requests.get(url, headers=headers, timeout=15)
-            logger.info(f"HF pull HTTP {resp.status_code} (auth={'yes' if headers else 'no'})")
-            if resp.status_code == 200:
-                SESSION_FILE.write_bytes(resp.content)
-                logger.info(f"Session pulled from HF Hub ({_HF_DATASET_REPO}) → {SESSION_FILE}")
-                _pulled_once = True
-                return True
-        logger.warning(f"HF pull failed all attempts — last HTTP {resp.status_code}: {resp.text[:200]}")
-        return False
+        from huggingface_hub import hf_hub_download
+        cached = hf_hub_download(
+            repo_id=_HF_DATASET_REPO,
+            filename=_HF_FILENAME,
+            repo_type="dataset",
+            token=HF_TOKEN,
+            force_download=True,   # always fetch the latest version
+        )
+        shutil.copy2(cached, SESSION_FILE)
+        logger.info(f"Session pulled from HF Hub ({_HF_DATASET_REPO}) → {SESSION_FILE}")
+        return True
     except Exception as e:
         logger.warning(f"Could not pull session from HF Hub: {e}")
         return False
 
 
 def _hf_push_session() -> None:
-    """Upload SESSION_FILE to the HF dataset in a daemon thread (fire-and-forget).
-
-    Requires a WRITE-capable token.  HF auto-injects HF_TOKEN as READ-ONLY since
-    late 2024 — upload_file() silently returns 403 with that token.
-    Set the Space secret HF_DATASET_TOKEN to a write token to enable persistence.
-    """
-    push_token = HF_WRITE_TOKEN or HF_TOKEN
-    # DEBUG: Log token presence for troubleshooting
-    logger.info(f"DEBUG: IS_HF_SPACE={IS_HF_SPACE}, HF_WRITE_TOKEN={'set' if HF_WRITE_TOKEN else 'missing'}, HF_TOKEN={'set' if HF_TOKEN else 'missing'}")
-    if not IS_HF_SPACE or not push_token:
-        if IS_HF_SPACE:
-            logger.warning("HF push skipped — no token available (set HF_DATASET_TOKEN secret)")
+    """Upload SESSION_FILE to the HF dataset in a daemon thread (fire-and-forget)."""
+    if not IS_HF_SPACE or not HF_TOKEN:
         return
 
     def _push():
         try:
             from huggingface_hub import HfApi
-            api = HfApi(token=push_token)
+            api = HfApi(token=HF_TOKEN)
             api.create_repo(
                 repo_id=_HF_DATASET_REPO,
                 repo_type="dataset",
@@ -89,8 +67,7 @@ def _hf_push_session() -> None:
                 repo_id=_HF_DATASET_REPO,
                 repo_type="dataset",
             )
-            token_type = "WRITE" if HF_WRITE_TOKEN else "HF_TOKEN (read-only!)"
-            logger.info(f"Session pushed to HF Hub ({_HF_DATASET_REPO}) using {token_type}")
+            logger.info(f"Session pushed to HF Hub ({_HF_DATASET_REPO})")
         except Exception as e:
             logger.warning(f"Could not push session to HF Hub: {e}")
 
@@ -130,7 +107,6 @@ def save_session(symbols: List[str], owned: Dict[str, bool],
                  snapshots: Dict[str, dict] = None):
     """Persist current dashboard state to disk (and HF Hub on Spaces).
     Returns (True, "") on success or (False, error_message) on failure."""
-    logger.info(f"DEBUG: save_session entry: IS_HF_SPACE={IS_HF_SPACE}, HF_WRITE_TOKEN={'set' if HF_WRITE_TOKEN else 'missing'}, HF_TOKEN={'set' if HF_TOKEN else 'missing'}")
     data = {
         "version":          "1.0",
         "saved_at":         datetime.now(timezone.utc).isoformat(),
@@ -143,10 +119,8 @@ def save_session(symbols: List[str], owned: Dict[str, bool],
     try:
         with open(SESSION_FILE, "w") as f:
             json.dump(data, f, indent=2)
-        logger.info(f"Session saved DEBUG: IS_HF_SPACE={IS_HF_SPACE}, HF_WRITE_TOKEN={'set' if HF_WRITE_TOKEN else 'missing'}, HF_TOKEN={'set' if HF_TOKEN else 'missing'}")
         logger.info(f"Session saved to {SESSION_FILE}: {symbols}")
-        # DEBUG: Log before pushing to HF Hub
-        logger.warning(f"DEBUG: About to call _hf_push_session: IS_HF_SPACE={IS_HF_SPACE}, HF_WRITE_TOKEN={'set' if HF_WRITE_TOKEN else 'missing'}, HF_TOKEN={'set' if HF_TOKEN else 'missing'}")
+        # Push to HF Hub asynchronously so the UI isn't blocked
         _hf_push_session()
         return True, ""
     except Exception as e:
