@@ -26,23 +26,29 @@ _HF_FILENAME     = "session.json"
 
 def _hf_pull_session() -> bool:
     """Download session.json from the HF dataset into SESSION_FILE.
-    Returns True on success.  No-op when not on HF Spaces or no token."""
-    if not IS_HF_SPACE or not HF_TOKEN:
-        logger.info(f"HF pull skipped: IS_HF_SPACE={IS_HF_SPACE} HF_TOKEN={'set' if HF_TOKEN else 'missing'}")
+    Returns True on success.  No-op when not on HF Spaces.
+    Works with both public datasets (no token) and private datasets (token required).
+    Tries with token first, then falls back to no-auth for public datasets."""
+    if not IS_HF_SPACE:
         return False
     url = f"https://huggingface.co/datasets/{_HF_DATASET_REPO}/resolve/main/{_HF_FILENAME}"
-    logger.info(f"Pulling session from {url}")
+    logger.info(f"HF pull: IS_HF_SPACE=True HF_TOKEN={'set' if HF_TOKEN else 'missing'} url={url}")
     try:
         import requests as _requests
-        resp = _requests.get(url, headers={"Authorization": f"Bearer {HF_TOKEN}"}, timeout=15)
-        logger.info(f"HF pull HTTP {resp.status_code}")
-        if resp.status_code == 200:
-            SESSION_FILE.write_bytes(resp.content)
-            logger.info(f"Session pulled from HF Hub ({_HF_DATASET_REPO}) → {SESSION_FILE}")
-            return True
-        else:
-            logger.warning(f"HF pull failed: HTTP {resp.status_code} — {resp.text[:200]}")
-            return False
+        # Try with token first (private dataset), then without (public dataset)
+        attempts = []
+        if HF_TOKEN:
+            attempts.append({"Authorization": f"Bearer {HF_TOKEN}"})
+        attempts.append({})  # no-auth attempt (works if dataset is public)
+        for headers in attempts:
+            resp = _requests.get(url, headers=headers, timeout=15)
+            logger.info(f"HF pull HTTP {resp.status_code} (auth={'yes' if headers else 'no'})")
+            if resp.status_code == 200:
+                SESSION_FILE.write_bytes(resp.content)
+                logger.info(f"Session pulled from HF Hub ({_HF_DATASET_REPO}) → {SESSION_FILE}")
+                return True
+        logger.warning(f"HF pull failed all attempts — last HTTP {resp.status_code}: {resp.text[:200]}")
+        return False
     except Exception as e:
         logger.warning(f"Could not pull session from HF Hub: {e}")
         return False
