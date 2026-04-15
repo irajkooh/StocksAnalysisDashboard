@@ -18,9 +18,9 @@ from utils.config import SESSION_FILE, IS_HF_SPACE, HF_TOKEN, HF_WRITE_TOKEN, HF
 
 logger = logging.getLogger(__name__)
 
-_HF_DATASET_REPO = f"{HF_USER}/stocks-dashboard-session"
+#_HF_DATASET_REPO = f"{HF_USER}/stocks-dashboard-session"
+_HF_DATASET_REPO = f"{HF_USER}/StocksAnalysisDashboard"
 _HF_FILENAME     = "session.json"
-
 
 # ─── HF Hub sync helpers ──────────────────────────────────────────────────────
 
@@ -62,6 +62,8 @@ def _hf_push_session() -> None:
     Set the Space secret HF_DATASET_TOKEN to a write token to enable persistence.
     """
     push_token = HF_WRITE_TOKEN or HF_TOKEN
+    # DEBUG: Log token presence for troubleshooting
+    logger.info(f"DEBUG: IS_HF_SPACE={IS_HF_SPACE}, HF_WRITE_TOKEN={'set' if HF_WRITE_TOKEN else 'missing'}, HF_TOKEN={'set' if HF_TOKEN else 'missing'}")
     if not IS_HF_SPACE or not push_token:
         if IS_HF_SPACE:
             logger.warning("HF push skipped — no token available (set HF_DATASET_TOKEN secret)")
@@ -124,6 +126,7 @@ def save_session(symbols: List[str], owned: Dict[str, bool],
                  snapshots: Dict[str, dict] = None):
     """Persist current dashboard state to disk (and HF Hub on Spaces).
     Returns (True, "") on success or (False, error_message) on failure."""
+    logger.info(f"DEBUG: save_session entry: IS_HF_SPACE={IS_HF_SPACE}, HF_WRITE_TOKEN={'set' if HF_WRITE_TOKEN else 'missing'}, HF_TOKEN={'set' if HF_TOKEN else 'missing'}")
     data = {
         "version":          "1.0",
         "saved_at":         datetime.now(timezone.utc).isoformat(),
@@ -136,8 +139,10 @@ def save_session(symbols: List[str], owned: Dict[str, bool],
     try:
         with open(SESSION_FILE, "w") as f:
             json.dump(data, f, indent=2)
+        logger.info(f"Session saved DEBUG: IS_HF_SPACE={IS_HF_SPACE}, HF_WRITE_TOKEN={'set' if HF_WRITE_TOKEN else 'missing'}, HF_TOKEN={'set' if HF_TOKEN else 'missing'}")
         logger.info(f"Session saved to {SESSION_FILE}: {symbols}")
-        # Push to HF Hub asynchronously so the UI isn't blocked
+        # DEBUG: Log before pushing to HF Hub
+        logger.warning(f"DEBUG: About to call _hf_push_session: IS_HF_SPACE={IS_HF_SPACE}, HF_WRITE_TOKEN={'set' if HF_WRITE_TOKEN else 'missing'}, HF_TOKEN={'set' if HF_TOKEN else 'missing'}")
         _hf_push_session()
         return True, ""
     except Exception as e:
