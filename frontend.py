@@ -1025,6 +1025,7 @@ def build_app():
             """Fetch fresh prices for ALL open tabs directly via yfinance — no HTTP."""
             import time as _time
             import yfinance as yf
+            from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
             from agents.technical_agent import _session_info as _si_fn
 
             syms = [s for s in list(syms) if s]
@@ -1089,17 +1090,27 @@ def build_app():
                     logger.error(f"do_price_refresh [{s}]: {e}")
                     return None
 
-            # Refresh every open tab
+            # Refresh every open tab in parallel with a per-symbol timeout
+            _TIMEOUT = 20  # seconds per symbol
             refreshed, failed = 0, 0
-            for s in syms:
-                si = _fetch_si(s)
-                if si:
-                    data = _analysis_cache.get(s, {})
-                    data["session_info"] = si
-                    _analysis_cache[s]   = data
-                    refreshed += 1
-                else:
-                    failed += 1
+            with ThreadPoolExecutor(max_workers=len(syms)) as pool:
+                futures = {pool.submit(_fetch_si, s): s for s in syms}
+                for fut, s in futures.items():
+                    try:
+                        si = fut.result(timeout=_TIMEOUT)
+                        if si:
+                            data = _analysis_cache.get(s, {})
+                            data["session_info"] = si
+                            _analysis_cache[s]   = data
+                            refreshed += 1
+                        else:
+                            failed += 1
+                    except _FuturesTimeout:
+                        logger.warning(f"do_price_refresh [{s}]: timed out after {_TIMEOUT}s")
+                        failed += 1
+                    except Exception as e:
+                        logger.error(f"do_price_refresh [{s}]: {e}")
+                        failed += 1
 
             # Render hero for the currently visible tab
             data  = _analysis_cache.get(cur, {})
@@ -1386,6 +1397,7 @@ def build_app():
             """Fetch live prices for all tabs at startup; render hero + chart for active tab."""
             import time as _time
             import yfinance as yf
+            from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
             from agents.technical_agent import _session_info as _si_fn
 
             syms = [s for s in list(syms) if s]
@@ -1399,51 +1411,62 @@ def build_app():
             tz      = _time.strftime("%Z")
             now_str = f"{h12}:{t.tm_min:02d}:{t.tm_sec:02d} {ampm} {tz}"
 
-            for s in syms:
+            def _fetch_one(s):
+                stock = yf.Ticker(s)
+                ext_last = ext_time = pre_last = reg_last = post_last = ovn_last = None
                 try:
-                    stock = yf.Ticker(s)
-                    ext_last = ext_time = pre_last = reg_last = post_last = ovn_last = None
+                    df_1m = stock.history(period="1d", interval="1m", prepost=True)
+                    if df_1m is not None and not df_1m.empty:
+                        ext_last = float(df_1m["Close"].iloc[-1])
+                        ts = df_1m.index[-1]
+                        h, m = ts.hour, ts.minute
+                        ap = "AM" if h < 12 else "PM"
+                        ext_time = f"{h % 12 or 12}:{m:02d} {ap} ET"
+                        for bar_ts in df_1m.index:
+                            bh, bm = bar_ts.hour, bar_ts.minute
+                            price  = float(df_1m.loc[bar_ts, "Close"])
+                            if bh < 9 or (bh == 9 and bm < 30):
+                                pre_last  = price
+                            elif (bh == 9 and bm >= 30) or (10 <= bh < 16):
+                                reg_last  = price
+                            elif 16 <= bh < 20:
+                                post_last = price
+                            elif bh >= 20:
+                                ovn_last  = price
+                except Exception:
+                    pass
+                df_1d = None
+                try:
+                    df_1d = stock.history(period="2d", interval="1d", auto_adjust=True)
+                    if df_1d is not None and not df_1d.empty:
+                        df_1d.index = df_1d.index.tz_localize(None)
+                    else:
+                        df_1d = None
+                except Exception:
+                    pass
+                info = {"_reg_last_price": reg_last}
+                if pre_last  is not None: info["_pre_last_price"]  = pre_last
+                if post_last is not None: info["_post_last_price"] = post_last
+                if ovn_last  is not None: info["_ovn_last_price"]  = ovn_last
+                if ext_last  is not None: info["_ext_last_price"]  = ext_last
+                if ext_time  is not None: info["_ext_last_time"]   = ext_time
+                si = _si_fn(info, df_1d)
+                si["_refreshed_at"] = now_str
+                return s, si
+
+            # Fetch all symbols in parallel with a per-call timeout so a
+            # hung yfinance request (HF rate-limit / cold-start) doesn't stall startup.
+            _TIMEOUT = 20  # seconds per symbol
+            with ThreadPoolExecutor(max_workers=len(syms)) as pool:
+                futures = {pool.submit(_fetch_one, s): s for s in syms}
+                for fut, s in futures.items():
                     try:
-                        df_1m = stock.history(period="1d", interval="1m", prepost=True)
-                        if df_1m is not None and not df_1m.empty:
-                            ext_last = float(df_1m["Close"].iloc[-1])
-                            ts = df_1m.index[-1]
-                            h, m = ts.hour, ts.minute
-                            ap = "AM" if h < 12 else "PM"
-                            ext_time = f"{h % 12 or 12}:{m:02d} {ap} ET"
-                            for bar_ts in df_1m.index:
-                                bh, bm = bar_ts.hour, bar_ts.minute
-                                price  = float(df_1m.loc[bar_ts, "Close"])
-                                if bh < 9 or (bh == 9 and bm < 30):
-                                    pre_last  = price
-                                elif (bh == 9 and bm >= 30) or (10 <= bh < 16):
-                                    reg_last  = price
-                                elif 16 <= bh < 20:
-                                    post_last = price
-                                elif bh >= 20:
-                                    ovn_last  = price
-                    except Exception:
-                        pass
-                    df_1d = None
-                    try:
-                        df_1d = stock.history(period="2d", interval="1d", auto_adjust=True)
-                        if df_1d is not None and not df_1d.empty:
-                            df_1d.index = df_1d.index.tz_localize(None)
-                        else:
-                            df_1d = None
-                    except Exception:
-                        pass
-                    info = {"_reg_last_price": reg_last}
-                    if pre_last  is not None: info["_pre_last_price"]  = pre_last
-                    if post_last is not None: info["_post_last_price"] = post_last
-                    if ovn_last  is not None: info["_ovn_last_price"]  = ovn_last
-                    if ext_last  is not None: info["_ext_last_price"]  = ext_last
-                    if ext_time  is not None: info["_ext_last_time"]   = ext_time
-                    si = _si_fn(info, df_1d)
-                    si["_refreshed_at"] = now_str
-                    _analysis_cache.setdefault(s, {})["session_info"] = si
-                except Exception as e:
-                    logger.error(f"_startup_prices [{s}]: {e}")
+                        sym, si = fut.result(timeout=_TIMEOUT)
+                        _analysis_cache.setdefault(sym, {})["session_info"] = si
+                    except _FuturesTimeout:
+                        logger.warning(f"_startup_prices [{s}]: timed out after {_TIMEOUT}s")
+                    except Exception as e:
+                        logger.error(f"_startup_prices [{s}]: {e}")
 
             if not cur or cur not in syms:
                 cur = syms[0]
