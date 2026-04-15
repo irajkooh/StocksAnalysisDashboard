@@ -22,14 +22,17 @@ logger = logging.getLogger(__name__)
 _HF_DATASET_REPO = f"{HF_USER}/StocksAnalysisDashboard"
 _HF_FILENAME     = "session.json"
 
+_pulled_once = False
+
 # ─── HF Hub sync helpers ──────────────────────────────────────────────────────
 
 def _hf_pull_session() -> bool:
     """Download session.json from the HF dataset into SESSION_FILE.
-    Returns True on success.  No-op when not on HF Spaces.
-    Works with both public datasets (no token) and private datasets (token required).
-    Tries with token first, then falls back to no-auth for public datasets."""
-    if not IS_HF_SPACE:
+    No-op when not on HF Spaces or after the first successful pull in this
+    process. The local file stays authoritative after startup because
+    save_session() writes it in-place."""
+    global _pulled_once
+    if not IS_HF_SPACE or _pulled_once:
         return False
     url = f"https://huggingface.co/datasets/{_HF_DATASET_REPO}/resolve/main/{_HF_FILENAME}"
     logger.info(f"HF pull: IS_HF_SPACE=True HF_TOKEN={'set' if HF_TOKEN else 'missing'} url={url}")
@@ -46,6 +49,7 @@ def _hf_pull_session() -> bool:
             if resp.status_code == 200:
                 SESSION_FILE.write_bytes(resp.content)
                 logger.info(f"Session pulled from HF Hub ({_HF_DATASET_REPO}) → {SESSION_FILE}")
+                _pulled_once = True
                 return True
         logger.warning(f"HF pull failed all attempts — last HTTP {resp.status_code}: {resp.text[:200]}")
         return False
