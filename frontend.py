@@ -1017,7 +1017,6 @@ def build_app():
         def do_price_refresh(cur_sym_val, syms):
             """Fetch fresh prices for ALL open tabs directly via yfinance — no HTTP."""
             import time as _time
-            import datetime as _dt
             import yfinance as yf
             from agents.technical_agent import _session_info as _si_fn
 
@@ -1026,15 +1025,11 @@ def build_app():
             if not syms:
                 return gr.update(), ""
 
-            # Timestamp rendered in browser so it shows the user's local timezone
-            # (server may be UTC on HuggingFace Spaces)
-            _utc = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            _tid = f"rts{int(_time.time()*1000)%999983}"
-            now_str = (
-                f'<span id="{_tid}"></span>'
-                f'<script>(function(){{var e=document.getElementById("{_tid}");'
-                f'if(e)e.textContent=new Date("{_utc}").toLocaleTimeString([],{{hour:"numeric",minute:"2-digit",second:"2-digit",timeZoneName:"short"}});}})();</script>'
-            )
+            t       = _time.localtime()
+            h12     = t.tm_hour % 12 or 12
+            ampm    = "AM" if t.tm_hour < 12 else "PM"
+            tz      = _time.strftime("%Z")
+            now_str = f"{h12}:{t.tm_min:02d}:{t.tm_sec:02d} {ampm} {tz}"
 
             def _fetch_si(s):
                 """Return a fresh session_info dict for symbol s."""
@@ -1383,7 +1378,6 @@ def build_app():
         def _startup_prices(cur_sym_val, syms):
             """Fetch live prices for all tabs at startup; render hero + chart for active tab."""
             import time as _time
-            import datetime as _dt
             import yfinance as yf
             from agents.technical_agent import _session_info as _si_fn
 
@@ -1392,13 +1386,11 @@ def build_app():
             if not syms:
                 return [_hero_placeholder(), "", "", "", "", "", "*Run analysis to see AI report.*", ""]
 
-            _utc = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            _tid = f"rts{int(_time.time()*1000)%999983}"
-            now_str = (
-                f'<span id="{_tid}"></span>'
-                f'<script>(function(){{var e=document.getElementById("{_tid}");'
-                f'if(e)e.textContent=new Date("{_utc}").toLocaleTimeString([],{{hour:"numeric",minute:"2-digit",second:"2-digit",timeZoneName:"short"}});}})();</script>'
-            )
+            t       = _time.localtime()
+            h12     = t.tm_hour % 12 or 12
+            ampm    = "AM" if t.tm_hour < 12 else "PM"
+            tz      = _time.strftime("%Z")
+            now_str = f"{h12}:{t.tm_min:02d}:{t.tm_sec:02d} {ampm} {tz}"
 
             for s in syms:
                 try:
