@@ -1029,7 +1029,8 @@ def build_app():
             t       = _time.localtime()
             h12     = t.tm_hour % 12 or 12
             ampm    = "AM" if t.tm_hour < 12 else "PM"
-            now_str = f"{h12}:{t.tm_min:02d}:{t.tm_sec:02d} {ampm}"
+            tz      = _time.strftime("%Z")
+            now_str = f"{h12}:{t.tm_min:02d}:{t.tm_sec:02d} {ampm} {tz}"
 
             def _fetch_si(s):
                 """Return a fresh session_info dict for symbol s."""
@@ -1389,7 +1390,8 @@ def build_app():
             t       = _time.localtime()
             h12     = t.tm_hour % 12 or 12
             ampm    = "AM" if t.tm_hour < 12 else "PM"
-            now_str = f"{h12}:{t.tm_min:02d}:{t.tm_sec:02d} {ampm}"
+            tz      = _time.strftime("%Z")
+            now_str = f"{h12}:{t.tm_min:02d}:{t.tm_sec:02d} {ampm} {tz}"
 
             for s in syms:
                 try:
