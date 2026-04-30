@@ -43,7 +43,8 @@ def _hf_user_path(username: str) -> str:
 def _hf_pull_user(username: str) -> bool:
     if not IS_HF_SPACE or not HF_TOKEN:
         return False
-    try:
+    import concurrent.futures
+    def _do_pull():
         from huggingface_hub import hf_hub_download
         cached = hf_hub_download(
             repo_id=_HF_DATASET_REPO,
@@ -53,8 +54,14 @@ def _hf_pull_user(username: str) -> bool:
             force_download=True,
         )
         shutil.copy2(cached, _user_file(username))
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            ex.submit(_do_pull).result(timeout=5)
         logger.info(f"Session pulled for '{username}' from HF Hub")
         return True
+    except concurrent.futures.TimeoutError:
+        logger.warning(f"HF pull timed out for '{username}', using local file")
+        return False
     except Exception as e:
         logger.warning(f"Could not pull session for '{username}' from HF Hub: {e}")
         return False
