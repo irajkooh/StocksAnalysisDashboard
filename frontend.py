@@ -28,7 +28,7 @@ from utils.config import (
     DEFAULT_WATCHLIST, DEFAULT_TABS, REFRESH_OPTIONS, MAX_CHATBOT_MEMORY,
 )
 from utils.device import get_device_label
-from utils.session_manager import load_session, save_session, list_users, create_user
+from utils.session_manager import load_session, save_session, list_users, create_user, delete_user, rename_user
 from utils.tts_engine import text_to_speech_file
 
 logger = logging.getLogger(__name__)
@@ -724,16 +724,23 @@ def build_app():
 
         # ── User Management ────────────────────────────────────────────────
         with gr.Row(elem_id="user_mgmt_row"):
-            user_dd        = gr.Dropdown(
-                choices=list_users(), value=None,
+            user_dd         = gr.Dropdown(
+                choices=[], value=None,
                 label="Select User", scale=3, interactive=True,
             )
-            load_user_btn  = gr.Button("Load User",   variant="primary",   scale=1)
-            new_user_in    = gr.Textbox(
+            load_user_btn   = gr.Button("Load",    variant="primary",   scale=1)
+            delete_user_btn = gr.Button("Delete",  variant="stop",      scale=1)
+            new_user_in     = gr.Textbox(
                 placeholder="New username…", show_label=False,
                 scale=2, max_lines=1,
             )
-            create_user_btn = gr.Button("Create User", variant="secondary", scale=1)
+            create_user_btn = gr.Button("Create",  variant="secondary", scale=1)
+        with gr.Row(elem_id="user_rename_row"):
+            rename_in       = gr.Textbox(
+                placeholder="Rename selected user to…", show_label=False,
+                scale=4, max_lines=1,
+            )
+            rename_user_btn = gr.Button("Rename",  variant="secondary", scale=1)
         user_status = gr.HTML("")
 
         # ── Toolbar row 1 ──────────────────────────────────────────────────
@@ -1265,7 +1272,35 @@ def build_app():
             if not ok:
                 return new_name, gr.update(), f'<div style="color:#ef4444;font-size:12px">{err}</div>'
             users = list_users()
-            return "", gr.update(choices=users, value=name), f'<div style="color:#22c55e;font-size:12px">User <b>{name}</b> created — click Load User.</div>'
+            return "", gr.update(choices=users, value=name), f'<div style="color:#22c55e;font-size:12px">User <b>{name}</b> created — click Load.</div>'
+
+        def do_delete_user(username):
+            global _current_user
+            if not username:
+                return gr.update(), '<div style="color:#facc15;font-size:12px">Select a user first.</div>'
+            ok, err = delete_user(username)
+            if not ok:
+                return gr.update(), f'<div style="color:#ef4444;font-size:12px">{err}</div>'
+            if _current_user == username:
+                _current_user = ""
+                _owned_map.clear()
+                _analysis_cache.clear()
+                _watchlist.clear()
+                _watchlist.extend(list(DEFAULT_WATCHLIST))
+            users = list_users()
+            return gr.update(choices=users, value=None), f'<div style="color:#22c55e;font-size:12px">User <b>{username}</b> deleted.</div>'
+
+        def do_rename_user(username, new_name):
+            global _current_user
+            if not username:
+                return gr.update(), new_name, '<div style="color:#facc15;font-size:12px">Select a user first.</div>'
+            ok, err = rename_user(username, new_name)
+            if not ok:
+                return gr.update(), new_name, f'<div style="color:#ef4444;font-size:12px">{err}</div>'
+            if _current_user == username:
+                _current_user = new_name.strip()
+            users = list_users()
+            return gr.update(choices=users, value=new_name.strip()), "", f'<div style="color:#22c55e;font-size:12px">Renamed <b>{username}</b> → <b>{new_name.strip()}</b>.</div>'
 
         (load_user_btn.click(fn=do_load_user, inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS)
                       .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list)
@@ -1276,6 +1311,23 @@ def build_app():
             fn=do_create_user,
             inputs=[new_user_in],
             outputs=[new_user_in, user_dd, user_status],
+        )
+
+        delete_user_btn.click(
+            fn=do_delete_user,
+            inputs=[user_dd],
+            outputs=[user_dd, user_status],
+        )
+
+        rename_user_btn.click(
+            fn=do_rename_user,
+            inputs=[user_dd, rename_in],
+            outputs=[user_dd, rename_in, user_status],
+        )
+        rename_in.submit(
+            fn=do_rename_user,
+            inputs=[user_dd, rename_in],
+            outputs=[user_dd, rename_in, user_status],
         )
 
 
@@ -1455,14 +1507,15 @@ def build_app():
             secs      = "0"
             first_sym = ""
             wl_update = gr.update(choices=list(_watchlist), value=None)
+            dd_update = gr.update(choices=list_users(), value=None)
 
-            state_out = [syms, ref, secs, first_sym, wl_update] + list(_tab_updates(syms)) + list(_own_chk_updates(syms))
+            state_out = [dd_update, syms, ref, secs, first_sym, wl_update] + list(_tab_updates(syms)) + list(_own_chk_updates(syms))
             panel_out = [_hero_placeholder(), "", "", "", "", "", "*Run analysis to see AI report.*", ""]
             return state_out + panel_out
 
         demo.load(
             fn=_on_page_load,
-            outputs=[syms_state, ref_dd, ar_secs, cur_sym, wl_radio] + tab_objs + own_chk_list + PANEL,
+            outputs=[user_dd, syms_state, ref_dd, ar_secs, cur_sym, wl_radio] + tab_objs + own_chk_list + PANEL,
         )
 
         def _startup_prices(cur_sym_val, syms):

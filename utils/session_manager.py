@@ -147,6 +147,40 @@ def create_user(username: str) -> Tuple[bool, str]:
         return False, str(e)
 
 
+def delete_user(username: str) -> Tuple[bool, str]:
+    """Delete a user's session file. Returns (ok, error_message)."""
+    ufile = _user_file(username)
+    if not ufile.exists():
+        return False, f"User '{username}' not found."
+    try:
+        ufile.unlink()
+        logger.info(f"Deleted user '{username}'")
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+
+def rename_user(old_name: str, new_name: str) -> Tuple[bool, str]:
+    """Rename a user. Returns (ok, error_message)."""
+    new_name = new_name.strip()
+    if not new_name:
+        return False, "New username cannot be empty."
+    if not _USERNAME_RE.match(new_name):
+        return False, "Use only letters, numbers, underscores, hyphens (max 32 chars)."
+    old_file = _user_file(old_name)
+    new_file = _user_file(new_name)
+    if not old_file.exists():
+        return False, f"User '{old_name}' not found."
+    if new_file.exists():
+        return False, f"User '{new_name}' already exists."
+    try:
+        old_file.rename(new_file)
+        logger.info(f"Renamed user '{old_name}' → '{new_name}'")
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+
 def load_session(username: str = "") -> Dict:
     """Load saved session. Pass username for per-user session, omit for legacy global."""
     if username:
