@@ -2,53 +2,107 @@
 utils/session_manager.py — Persistent session save/load
 Stores active symbols and their "I own this stock" state to a JSON file.
 
-On HF Spaces the session is additionally synced to a private HF dataset
-(irajkoohi/stocks-dashboard-session) so it survives Space restarts.
+Supports per-user sessions stored in utils/sessions/{username}.json.
+On HF Spaces each user's file is additionally synced to a private HF dataset.
 """
 
 import json
 import logging
+import re
 import shutil
 import threading
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 from datetime import datetime, timezone
 
 from utils.config import SESSION_FILE, IS_HF_SPACE, HF_TOKEN, HF_USER
 
 logger = logging.getLogger(__name__)
 
-#_HF_DATASET_REPO = f"{HF_USER}/stocks-dashboard-session"
 _HF_DATASET_REPO = f"{HF_USER}/StocksAnalysisDashboard"
-_HF_FILENAME     = "session.json"
+
+# Per-user sessions directory alongside the legacy session.json
+SESSIONS_DIR = SESSION_FILE.parent / "sessions"
+SESSIONS_DIR.mkdir(exist_ok=True)
+
+_USERNAME_RE = re.compile(r'^[\w\-]{1,32}$')
 
 
-# ─── HF Hub sync helpers ──────────────────────────────────────────────────────
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def _hf_pull_session() -> bool:
-    """Download session.json from the HF dataset into SESSION_FILE.
-    Returns True on success.  No-op when not on HF Spaces or no token."""
+def _user_file(username: str) -> Path:
+    return SESSIONS_DIR / f"{username}.json"
+
+
+def _hf_user_path(username: str) -> str:
+    return f"sessions/{username}.json"
+
+
+# ─── HF Hub sync (per-user) ───────────────────────────────────────────────────
+
+def _hf_pull_user(username: str) -> bool:
     if not IS_HF_SPACE or not HF_TOKEN:
         return False
     try:
         from huggingface_hub import hf_hub_download
         cached = hf_hub_download(
             repo_id=_HF_DATASET_REPO,
-            filename=_HF_FILENAME,
+            filename=_hf_user_path(username),
             repo_type="dataset",
             token=HF_TOKEN,
-            force_download=True,   # always fetch the latest version
+            force_download=True,
         )
-        shutil.copy2(cached, SESSION_FILE)
-        logger.info(f"Session pulled from HF Hub ({_HF_DATASET_REPO}) → {SESSION_FILE}")
+        shutil.copy2(cached, _user_file(username))
+        logger.info(f"Session pulled for '{username}' from HF Hub")
         return True
     except Exception as e:
-        logger.warning(f"Could not pull session from HF Hub: {e}")
+        logger.warning(f"Could not pull session for '{username}' from HF Hub: {e}")
+        return False
+
+
+def _hf_push_user(username: str) -> None:
+    if not IS_HF_SPACE or not HF_TOKEN:
+        return
+    ufile    = _user_file(username)
+    hf_path  = _hf_user_path(username)
+
+    def _push():
+        try:
+            from huggingface_hub import HfApi
+            api = HfApi(token=HF_TOKEN)
+            api.create_repo(repo_id=_HF_DATASET_REPO, repo_type="dataset",
+                            private=True, exist_ok=True)
+            api.upload_file(path_or_fileobj=str(ufile), path_in_repo=hf_path,
+                            repo_id=_HF_DATASET_REPO, repo_type="dataset")
+            logger.info(f"Session pushed for '{username}' to HF Hub")
+        except Exception as e:
+            logger.warning(f"Could not push session for '{username}' to HF Hub: {e}")
+
+    threading.Thread(target=_push, daemon=True).start()
+
+
+# ─── HF Hub sync (legacy global session) ─────────────────────────────────────
+
+def _hf_pull_session() -> bool:
+    if not IS_HF_SPACE or not HF_TOKEN:
+        return False
+    try:
+        from huggingface_hub import hf_hub_download
+        cached = hf_hub_download(
+            repo_id=_HF_DATASET_REPO,
+            filename="session.json",
+            repo_type="dataset",
+            token=HF_TOKEN,
+            force_download=True,
+        )
+        shutil.copy2(cached, SESSION_FILE)
+        return True
+    except Exception as e:
+        logger.warning(f"Could not pull global session from HF Hub: {e}")
         return False
 
 
 def _hf_push_session() -> None:
-    """Upload SESSION_FILE to the HF dataset in a daemon thread (fire-and-forget)."""
     if not IS_HF_SPACE or not HF_TOKEN:
         return
 
@@ -56,41 +110,70 @@ def _hf_push_session() -> None:
         try:
             from huggingface_hub import HfApi
             api = HfApi(token=HF_TOKEN)
-            api.create_repo(
-                repo_id=_HF_DATASET_REPO,
-                repo_type="dataset",
-                private=True,
-                exist_ok=True,
-            )
-            api.upload_file(
-                path_or_fileobj=str(SESSION_FILE),
-                path_in_repo=_HF_FILENAME,
-                repo_id=_HF_DATASET_REPO,
-                repo_type="dataset",
-            )
-            logger.info(f"Session pushed to HF Hub ({_HF_DATASET_REPO})")
+            api.create_repo(repo_id=_HF_DATASET_REPO, repo_type="dataset",
+                            private=True, exist_ok=True)
+            api.upload_file(path_or_fileobj=str(SESSION_FILE),
+                            path_in_repo="session.json",
+                            repo_id=_HF_DATASET_REPO, repo_type="dataset")
         except Exception as e:
-            logger.warning(f"Could not push session to HF Hub: {e}")
+            logger.warning(f"Could not push global session to HF Hub: {e}")
 
     threading.Thread(target=_push, daemon=True).start()
 
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 
-def load_session() -> Dict:
-    """Load saved session from disk (pulling from HF Hub first on Spaces)."""
-    # On HF Spaces pull the latest persisted copy before reading the local file
+def list_users() -> List[str]:
+    """Return sorted list of existing usernames."""
+    return sorted(p.stem for p in SESSIONS_DIR.glob("*.json"))
+
+
+def create_user(username: str) -> Tuple[bool, str]:
+    """Create a new empty session for username. Returns (ok, error_message)."""
+    username = username.strip()
+    if not username:
+        return False, "Username cannot be empty."
+    if not _USERNAME_RE.match(username):
+        return False, "Use only letters, numbers, underscores, hyphens (max 32 chars)."
+    ufile = _user_file(username)
+    if ufile.exists():
+        return False, f"User '{username}' already exists."
+    try:
+        with open(ufile, "w") as f:
+            json.dump(_empty_session(), f, indent=2)
+        logger.info(f"Created user '{username}'")
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+
+def load_session(username: str = "") -> Dict:
+    """Load saved session. Pass username for per-user session, omit for legacy global."""
+    if username:
+        if IS_HF_SPACE:
+            _hf_pull_user(username)
+        ufile = _user_file(username)
+        if ufile.exists():
+            try:
+                with open(ufile, "r") as f:
+                    data = json.load(f)
+                logger.info(f"Session loaded for '{username}': {len(data.get('symbols', []))} symbols")
+                return data
+            except Exception as e:
+                logger.warning(f"Could not load session for '{username}': {e}")
+        return _empty_session()
+
+    # Legacy global session
     if IS_HF_SPACE:
         _hf_pull_session()
-
     if SESSION_FILE.exists():
         try:
             with open(SESSION_FILE, "r") as f:
                 data = json.load(f)
-            logger.info(f"Session loaded: {len(data.get('symbols', []))} symbols")
+            logger.info(f"Global session loaded: {len(data.get('symbols', []))} symbols")
             return data
         except Exception as e:
-            logger.warning(f"Could not load session: {e}")
+            logger.warning(f"Could not load global session: {e}")
     return _empty_session()
 
 
@@ -98,16 +181,15 @@ _SKIP_KEYS = {"chart_json", "_ts"}
 
 
 def _strip_snapshot(data: dict) -> dict:
-    """Remove non-serialisable / oversized keys before writing to disk."""
     return {k: v for k, v in data.items() if k not in _SKIP_KEYS}
 
 
 def save_session(symbols: List[str], owned: Dict[str, bool],
                  watchlist: List[str] = None,
                  refresh_interval: str = "Off",
-                 snapshots: Dict[str, dict] = None):
-    """Persist current dashboard state to disk (and HF Hub on Spaces).
-    Returns (True, "") on success or (False, error_message) on failure."""
+                 snapshots: Dict[str, dict] = None,
+                 username: str = "") -> Tuple[bool, str]:
+    """Persist dashboard state. Pass username for per-user save, omit for legacy global."""
     data = {
         "version":          "1.0",
         "saved_at":         datetime.now(timezone.utc).isoformat(),
@@ -117,15 +199,28 @@ def save_session(symbols: List[str], owned: Dict[str, bool],
         "refresh_interval": refresh_interval,
         "snapshots":        {k: _strip_snapshot(v) for k, v in (snapshots or {}).items()},
     }
+
+    if username:
+        ufile = _user_file(username)
+        try:
+            with open(ufile, "w") as f:
+                json.dump(data, f, indent=2)
+            logger.info(f"Session saved for '{username}': {symbols}")
+            _hf_push_user(username)
+            return True, ""
+        except Exception as e:
+            logger.error(f"Could not save session for '{username}': {e}")
+            return False, str(e)
+
+    # Legacy global session
     try:
         with open(SESSION_FILE, "w") as f:
             json.dump(data, f, indent=2)
-        logger.info(f"Session saved to {SESSION_FILE}: {symbols}")
-        # Push to HF Hub asynchronously so the UI isn't blocked
+        logger.info(f"Global session saved: {symbols}")
         _hf_push_session()
         return True, ""
     except Exception as e:
-        logger.error(f"Could not save session to {SESSION_FILE}: {e}")
+        logger.error(f"Could not save global session: {e}")
         return False, str(e)
 
 

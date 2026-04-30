@@ -28,7 +28,7 @@ from utils.config import (
     DEFAULT_WATCHLIST, DEFAULT_TABS, REFRESH_OPTIONS, MAX_CHATBOT_MEMORY,
 )
 from utils.device import get_device_label
-from utils.session_manager import load_session, save_session
+from utils.session_manager import load_session, save_session, list_users, create_user
 from utils.tts_engine import text_to_speech_file
 
 logger = logging.getLogger(__name__)
@@ -40,6 +40,7 @@ _analysis_cache: dict = {}
 _chat_history:   dict = {}
 _chatbot_ctx:    dict = {}
 _watchlist:      list = []
+_current_user:   str  = ""   # set when a user is selected; gates session saves
 
 SAMPLE_QUESTIONS = [
     "Good entry point?",
@@ -706,12 +707,11 @@ def _tab_updates(syms):
 # ── App ────────────────────────────────────────────────────────────────────────
 
 def build_app():
-    session     = load_session()
-    init_syms   = list(session.get("symbols", [])) or list(DEFAULT_TABS)
-    _owned_map.update(session.get("owned", {}))
+    # No session loaded at startup — wait for user selection
+    init_syms = []
     _watchlist.clear()
-    _watchlist.extend(session.get("watchlist") or list(DEFAULT_WATCHLIST))
-    saved_ref   = session.get("refresh_interval", "Off")
+    _watchlist.extend(list(DEFAULT_WATCHLIST))
+    saved_ref = "Off"
 
     if _GRADIO_MAJOR >= 6:
         _blocks_kwargs = {"fill_width": True}
@@ -721,6 +721,20 @@ def build_app():
 
     with demo:
         gr.HTML(_status_bar(), elem_id="app-header")
+
+        # ── User Management ────────────────────────────────────────────────
+        with gr.Row(elem_id="user_mgmt_row"):
+            user_dd        = gr.Dropdown(
+                choices=list_users(), value=None,
+                label="Select User", scale=3, interactive=True,
+            )
+            load_user_btn  = gr.Button("Load User",   variant="primary",   scale=1)
+            new_user_in    = gr.Textbox(
+                placeholder="New username…", show_label=False,
+                scale=2, max_lines=1,
+            )
+            create_user_btn = gr.Button("Create User", variant="secondary", scale=1)
+        user_status = gr.HTML("")
 
         # ── Toolbar row 1 ──────────────────────────────────────────────────
         with gr.Row(elem_id="toolbar"):
@@ -907,7 +921,7 @@ def build_app():
                         *_tab_updates(syms), *_own_chk_updates(syms))
             syms.append(sym)
             _owned_map.setdefault(sym, False)
-            save_session(syms, _owned_map, _watchlist, snapshots=_analysis_cache)
+            save_session(syms, _owned_map, _watchlist, snapshots=_analysis_cache, username=_current_user)
             return ("", syms,
                     f'<div style="color:#22c55e;font-size:12px"><b>{sym}</b> added.</div>',
                     *_tab_updates(syms), *_own_chk_updates(syms))
@@ -946,7 +960,7 @@ def build_app():
             syms.pop(idx)
             _owned_map.pop(sym, None)
             _analysis_cache.pop(sym, None)
-            save_session(syms, _owned_map, _watchlist, snapshots=_analysis_cache)
+            save_session(syms, _owned_map, _watchlist, snapshots=_analysis_cache, username=_current_user)
             # Pick a new active sym if the deleted one was active
             new_cur = cur
             if cur == sym:
@@ -989,7 +1003,7 @@ def build_app():
             if idx < 0 or idx >= n or swap < 0 or swap >= n:
                 return (syms, '', *_tab_updates(syms), *_own_chk_updates(syms))
             syms[idx], syms[swap] = syms[swap], syms[idx]
-            save_session(syms, _owned_map, _watchlist, snapshots=_analysis_cache)
+            save_session(syms, _owned_map, _watchlist, snapshots=_analysis_cache, username=_current_user)
             return (syms, '', *_tab_updates(syms), *_own_chk_updates(syms))
 
         _MOVE_OUTPUTS = [syms_state, status_msg] + tab_objs + own_chk_list
@@ -1007,7 +1021,7 @@ def build_app():
 
         # ── Save ───────────────────────────────────────────────────────────
         def _on_ref_dd_change(syms, rv):
-            save_session(list(syms), _owned_map, _watchlist, rv, snapshots=_analysis_cache)
+            save_session(list(syms), _owned_map, _watchlist, rv, snapshots=_analysis_cache, username=_current_user)
             return str(REFRESH_OPTIONS.get(rv, 0))
 
         ref_dd.change(fn=_on_ref_dd_change, inputs=[syms_state, ref_dd], outputs=[ar_secs])
@@ -1019,7 +1033,7 @@ def build_app():
                 return [gr.update()] * 8
             _analysis_cache.pop(sym, None)
             result = list(_run(sym))
-            save_session(list(_analysis_cache.keys()), _owned_map, _watchlist, snapshots=_analysis_cache)
+            save_session(list(_analysis_cache.keys()), _owned_map, _watchlist, snapshots=_analysis_cache, username=_current_user)
             return result
 
         def do_price_refresh(cur_sym_val, syms):
@@ -1139,7 +1153,7 @@ def build_app():
             for s in syms:
                 _analysis_cache.pop(s, None)
                 _run(s)
-            save_session(syms, _owned_map, _watchlist, snapshots=_analysis_cache)
+            save_session(syms, _owned_map, _watchlist, snapshots=_analysis_cache, username=_current_user)
             show = (active_sym or "").strip().upper()
             if show not in syms:
                 show = syms[0]
@@ -1192,7 +1206,7 @@ def build_app():
         def do_save(syms, ref):
             try:
                 syms = list(syms) if syms else []
-                ok, err = save_session(syms, _owned_map, _watchlist, ref, snapshots=_analysis_cache)
+                ok, err = save_session(syms, _owned_map, _watchlist, ref, snapshots=_analysis_cache, username=_current_user)
                 if ok:
                     return '<div style="color:#22c55e;font-size:12px">&#10003; Dashboard saved.</div>'
                 return f'<div style="color:#ef4444;font-size:12px">Save failed: {err}</div>'
@@ -1201,6 +1215,68 @@ def build_app():
                 return f'<div style="color:#ef4444;font-size:12px">Save error: {e}</div>'
 
         save_btn.click(fn=do_save, inputs=[syms_state, ref_dd], outputs=[status_msg])
+
+        # ── User Management callbacks ───────────────────────────────────────
+        _USER_LOAD_OUTPUTS = (
+            [user_status, syms_state, ref_dd, ar_secs, cur_sym, wl_radio]
+            + tab_objs + own_chk_list + PANEL
+        )
+
+        def do_load_user(username):
+            global _current_user
+            if not username:
+                return (
+                    ['<div style="color:#facc15;font-size:12px">Select a user first.</div>']
+                    + [gr.update()] * (len(_USER_LOAD_OUTPUTS) - 1)
+                )
+            _current_user = username
+            _owned_map.clear()
+            _analysis_cache.clear()
+            _chat_history.clear()
+            _chatbot_ctx.clear()
+            _watchlist.clear()
+
+            sess = load_session(username)
+            syms = list(sess.get("symbols", []))
+            _owned_map.update(sess.get("owned", {}))
+            _watchlist.extend(sess.get("watchlist") or list(DEFAULT_WATCHLIST))
+            for s, snap in sess.get("snapshots", {}).items():
+                si = snap.get("session_info")
+                if si:
+                    _analysis_cache.setdefault(s, {})["session_info"] = si
+
+            ref       = "Off"
+            secs      = "0"
+            first_sym = syms[0] if syms else ""
+            wl_update = gr.update(choices=list(_watchlist), value=None)
+            si    = _analysis_cache.get(first_sym, {}).get("session_info", {})
+            owns  = _owned_map.get(first_sym, False)
+            hero  = _hero_html(first_sym, "N/A", 0, {}, owns, si) if si else _hero_placeholder(first_sym)
+            chart = _tv_chart(first_sym, si)
+
+            status = f'<div style="color:#22c55e;font-size:12px">&#10003; User <b>{username}</b> loaded.</div>'
+            state_out = [status, syms, ref, secs, first_sym, wl_update] + list(_tab_updates(syms)) + list(_own_chk_updates(syms))
+            panel_out = [hero, chart, "", "", "", "", "*Run analysis to see AI report.*", ""]
+            return state_out + panel_out
+
+        def do_create_user(new_name):
+            name = new_name.strip()
+            ok, err = create_user(name)
+            if not ok:
+                return new_name, gr.update(), f'<div style="color:#ef4444;font-size:12px">{err}</div>'
+            users = list_users()
+            return "", gr.update(choices=users, value=name), f'<div style="color:#22c55e;font-size:12px">User <b>{name}</b> created — click Load User.</div>'
+
+        (load_user_btn.click(fn=do_load_user, inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS)
+                      .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list)
+                      .then(fn=lambda sym, syms: _startup_prices(sym, syms),
+                            inputs=[cur_sym, syms_state], outputs=PANEL))
+
+        create_user_btn.click(
+            fn=do_create_user,
+            inputs=[new_user_in],
+            outputs=[new_user_in, user_dd, user_status],
+        )
 
 
         # ── Auto-Refresh (JS polling loop injected at page load) ───────────
@@ -1365,49 +1441,28 @@ def build_app():
         }"""
         demo.load(fn=None, js=_JS_UNLOCK_TTS)
 
-        # ── Restore session on every page load ────────────────────────────
-        # gr.State default is frozen at server-startup; re-read session.json
-        # so that saves made in a previous browser session are picked up.
+        # ── Blank state on every page load — user must be selected first ──
         def _on_page_load():
-            sess = load_session()
-            syms = list(sess.get("symbols", [])) or list(DEFAULT_TABS)
+            global _current_user
+            _current_user = ""
             _owned_map.clear()
-            _owned_map.update(sess.get("owned", {}))
             _watchlist.clear()
-            _watchlist.extend(sess.get("watchlist") or list(DEFAULT_WATCHLIST))
+            _watchlist.extend(list(DEFAULT_WATCHLIST))
             _analysis_cache.clear()
 
-            # Restore session_info (prices only) from snapshots so the hero
-            # renders immediately — analysis panels stay empty until the user
-            # clicks Analyze Stock.
-            for s, snap in sess.get("snapshots", {}).items():
-                si = snap.get("session_info")
-                if si:
-                    _analysis_cache.setdefault(s, {})["session_info"] = si
-
-            ref  = "Off"   # never auto-analyze on startup
-            secs = "0"
-            first_sym = syms[0] if syms else ""
+            syms      = []
+            ref       = "Off"
+            secs      = "0"
+            first_sym = ""
             wl_update = gr.update(choices=list(_watchlist), value=None)
 
-            # Render hero + chart from cached snapshot so prices appear before
-            # _startup_prices (yfinance) completes.
-            si    = _analysis_cache.get(first_sym, {}).get("session_info", {})
-            owns  = _owned_map.get(first_sym, False)
-            hero  = _hero_html(first_sym, "N/A", 0, {}, owns, si) if si else _hero_placeholder(first_sym)
-            chart = _tv_chart(first_sym, si)
-
             state_out = [syms, ref, secs, first_sym, wl_update] + list(_tab_updates(syms)) + list(_own_chk_updates(syms))
-            panel_out = [hero, chart, "", "", "", "", "*Run analysis to see AI report.*", ""]
+            panel_out = [_hero_placeholder(), "", "", "", "", "", "*Run analysis to see AI report.*", ""]
             return state_out + panel_out
 
         demo.load(
             fn=_on_page_load,
             outputs=[syms_state, ref_dd, ar_secs, cur_sym, wl_radio] + tab_objs + own_chk_list + PANEL,
-        ).then(
-            fn=lambda sym, syms: _startup_prices(sym, syms),
-            inputs=[cur_sym, syms_state],
-            outputs=PANEL,
         )
 
         def _startup_prices(cur_sym_val, syms):
@@ -1502,7 +1557,7 @@ def build_app():
             sym = sym.strip().upper()
             if sym and sym not in _watchlist:
                 _watchlist.append(sym)
-                save_session([], _owned_map, _watchlist, snapshots=_analysis_cache)
+                save_session([], _owned_map, _watchlist, snapshots=_analysis_cache, username=_current_user)
             return gr.update(choices=list(_watchlist), value=None), ""
 
         wl_add.click(fn=do_wl_add, inputs=[wl_in], outputs=[wl_radio, wl_in])
@@ -1513,7 +1568,7 @@ def build_app():
             syms = list(syms)
             if sym and sym in _watchlist:
                 _watchlist.remove(sym)
-                save_session(syms, _owned_map, _watchlist, snapshots=_analysis_cache)
+                save_session(syms, _owned_map, _watchlist, snapshots=_analysis_cache, username=_current_user)
             return gr.update(choices=list(_watchlist), value=None)
 
         wl_del.click(fn=do_wl_delete, inputs=[wl_radio, syms_state], outputs=[wl_radio])
@@ -1533,7 +1588,7 @@ def build_app():
                         *_tab_updates(syms), *_own_chk_updates(syms))
             syms.append(sym)
             _owned_map.setdefault(sym, False)
-            save_session(syms, _owned_map, _watchlist, snapshots=_analysis_cache)
+            save_session(syms, _owned_map, _watchlist, snapshots=_analysis_cache, username=_current_user)
             return (syms,
                     f'<div style="color:#22c55e;font-size:12px"><b>{sym}</b> added.</div>',
                     *_tab_updates(syms), *_own_chk_updates(syms))
