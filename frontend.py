@@ -1302,10 +1302,14 @@ def build_app():
             users = list_users()
             return gr.update(choices=users, value=new_name.strip()), "", f'<div style="color:#22c55e;font-size:12px">Renamed <b>{username}</b> → <b>{new_name.strip()}</b>.</div>'
 
-        (load_user_btn.click(fn=do_load_user, inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS)
-                      .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list)
-                      .then(fn=lambda sym, syms: _startup_prices(sym, syms),
-                            inputs=[cur_sym, syms_state], outputs=PANEL))
+        def _wire_load(trigger):
+            (trigger
+             .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list)
+             .then(fn=lambda sym, syms: _startup_prices(sym, syms),
+                   inputs=[cur_sym, syms_state], outputs=PANEL))
+
+        _wire_load(load_user_btn.click(fn=do_load_user, inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS))
+        _wire_load(user_dd.change(fn=do_load_user, inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS))
 
         create_user_btn.click(
             fn=do_create_user,
