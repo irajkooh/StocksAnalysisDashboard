@@ -813,7 +813,6 @@ def build_app():
                 own_chk_list     = []  # per-tab "I OWN" checkboxes
                 mv_left_btns     = []  # per-tab ◀ move-left buttons
                 mv_right_btns    = []  # per-tab ▶ move-right buttons
-                _tab_select_deps = []  # per-tab select deps for chaining
 
                 with gr.Tabs() as tabs_grp:
                     for i in range(MAX_SLOTS):
@@ -839,16 +838,6 @@ def build_app():
                                     "Delete", size="sm", variant="stop",
                                     min_width=0, scale=1,
                                 )
-                            # CRITICAL: read current symbol from syms_state at slot index i
-                            # NOT from the closure variable sym (which is frozen at startup)
-                            # This ensures that after add/delete, clicking a tab returns
-                            # the symbol currently assigned to that slot.
-                            _tab_sel = t.select(
-                                fn=lambda syms, idx=i: list(syms)[idx] if idx < len(list(syms)) else "",
-                                inputs=[syms_state],
-                                outputs=[cur_sym],
-                            )
-                            _tab_select_deps.append(_tab_sel)
                             own_chk.change(
                                 fn=lambda v, syms, idx=i: _owned_map.update(
                                     {list(syms)[idx]: v}
@@ -1204,13 +1193,16 @@ def build_app():
                 _chat_history.pop(s, None)
             return []
 
-        # Wire tab select → render PANEL → clear chat (all in one chain per tab).
-        # Using t.select chains instead of cur_sym.change avoids a second PANEL
-        # render triggered by do_load_user programmatically setting cur_sym.
-        for _dep in _tab_select_deps:
-            (_dep
-             .then(fn=on_sym_change, inputs=[cur_sym], outputs=PANEL)
-             .then(fn=_clear_chat,   inputs=[cur_sym], outputs=[chatbot]))
+        # Single tabs_grp.select fires exactly once per click (avoids per-tab
+        # race condition where all 12 t.select events fire simultaneously).
+        def on_tab_click(syms, evt: gr.SelectData):
+            idx  = evt.index
+            syms = list(syms)
+            return syms[idx] if idx < len(syms) else ""
+
+        (tabs_grp.select(fn=on_tab_click, inputs=[syms_state], outputs=[cur_sym])
+                 .then(fn=on_sym_change, inputs=[cur_sym], outputs=PANEL)
+                 .then(fn=_clear_chat,   inputs=[cur_sym], outputs=[chatbot]))
 
         (ref_btn.click(fn=do_refresh, inputs=[cur_sym], outputs=PANEL)
                 .then(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot]))
