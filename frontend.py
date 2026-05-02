@@ -813,6 +813,7 @@ def build_app():
                 own_chk_list     = []  # per-tab "I OWN" checkboxes
                 mv_left_btns     = []  # per-tab ◀ move-left buttons
                 mv_right_btns    = []  # per-tab ▶ move-right buttons
+                tab_select_evts  = []  # per-tab select event handles
 
                 with gr.Tabs() as tabs_grp:
                     for i in range(MAX_SLOTS):
@@ -849,6 +850,7 @@ def build_app():
                         own_chk_list.append(own_chk)
                         mv_left_btns.append(mv_l_btn)
                         mv_right_btns.append(mv_r_btn)
+                        tab_select_evts.append(t.select)
 
 
                 # ── Shared analysis panel ──────────────────────────────────
@@ -1193,16 +1195,110 @@ def build_app():
                 _chat_history.pop(s, None)
             return []
 
-        # Single tabs_grp.select fires exactly once per click (avoids per-tab
-        # race condition where all 12 t.select events fire simultaneously).
-        def on_tab_click(syms, evt: gr.SelectData):
-            idx  = evt.index
-            syms = list(syms)
-            return syms[idx] if idx < len(syms) else ""
+        def _startup_prices(cur_sym_val, syms):
+            """Fetch live prices for all tabs at startup; render hero + chart for active tab."""
+            import time as _time
+            import yfinance as yf
+            from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
+            from agents.technical_agent import _session_info as _si_fn
 
-        (tabs_grp.select(fn=on_tab_click, inputs=[syms_state], outputs=[cur_sym])
-                 .then(fn=on_sym_change, inputs=[cur_sym], outputs=PANEL)
-                 .then(fn=_clear_chat,   inputs=[cur_sym], outputs=[chatbot]))
+            syms = [s for s in list(syms) if s]
+            cur  = (cur_sym_val or "").strip().upper()
+            if not syms:
+                return [_hero_placeholder(), "", "", "", "", "", "*Run analysis to see AI report.*", ""]
+
+            t       = _time.localtime()
+            h12     = t.tm_hour % 12 or 12
+            ampm    = "AM" if t.tm_hour < 12 else "PM"
+            tz      = _time.strftime("%Z")
+            now_str = f"{h12}:{t.tm_min:02d}:{t.tm_sec:02d} {ampm} {tz}"
+
+            def _fetch_one(s):
+                stock = yf.Ticker(s)
+                ext_last = ext_time = pre_last = reg_last = post_last = ovn_last = None
+                try:
+                    df_1m = stock.history(period="1d", interval="1m", prepost=True)
+                    if df_1m is not None and not df_1m.empty:
+                        ext_last = float(df_1m["Close"].iloc[-1])
+                        ts = df_1m.index[-1]
+                        h, m = ts.hour, ts.minute
+                        ap = "AM" if h < 12 else "PM"
+                        ext_time = f"{h % 12 or 12}:{m:02d} {ap} ET"
+                        for bar_ts in df_1m.index:
+                            bh, bm = bar_ts.hour, bar_ts.minute
+                            price  = float(df_1m.loc[bar_ts, "Close"])
+                            if bh < 9 or (bh == 9 and bm < 30):
+                                pre_last  = price
+                            elif (bh == 9 and bm >= 30) or (10 <= bh < 16):
+                                reg_last  = price
+                            elif 16 <= bh < 20:
+                                post_last = price
+                            elif bh >= 20:
+                                ovn_last  = price
+                except Exception:
+                    pass
+                df_1d = None
+                try:
+                    df_1d = stock.history(period="2d", interval="1d", auto_adjust=True)
+                    if df_1d is not None and not df_1d.empty:
+                        df_1d.index = df_1d.index.tz_localize(None)
+                    else:
+                        df_1d = None
+                except Exception:
+                    pass
+                info = {"_reg_last_price": reg_last}
+                if pre_last  is not None: info["_pre_last_price"]  = pre_last
+                if post_last is not None: info["_post_last_price"] = post_last
+                if ovn_last  is not None: info["_ovn_last_price"]  = ovn_last
+                if ext_last  is not None: info["_ext_last_price"]  = ext_last
+                if ext_time  is not None: info["_ext_last_time"]   = ext_time
+                si = _si_fn(info, df_1d)
+                si["_refreshed_at"] = now_str
+                return s, si
+
+            _TIMEOUT = 20  # seconds per symbol
+            with ThreadPoolExecutor(max_workers=len(syms)) as pool:
+                futures = {pool.submit(_fetch_one, s): s for s in syms}
+                for fut, s in futures.items():
+                    try:
+                        sym, si = fut.result(timeout=_TIMEOUT)
+                        _analysis_cache.setdefault(sym, {})["session_info"] = si
+                    except _FuturesTimeout:
+                        logger.warning(f"_startup_prices [{s}]: timed out after {_TIMEOUT}s")
+                    except Exception as e:
+                        logger.error(f"_startup_prices [{s}]: {e}")
+
+            if not cur or cur not in syms:
+                cur = syms[0]
+            data = _analysis_cache.get(cur, {})
+            si   = data.get("session_info", {})
+            owns = _owned_map.get(cur, False)
+            hero = _hero_html(cur, "N/A", si.get("_reg_last_price") or 0, {}, owns, si) if si else _hero_placeholder(cur)
+            return [
+                hero,
+                _tv_chart(cur, si), "", "", "", "",
+                "*Run analysis to see AI report.*", "",
+            ]
+
+        # Per-tab select: each tab wires its own select event with a closure over idx.
+        # Collapsed into ONE server call (no .then chain) to avoid gr.State read-race.
+        # Only the clicked tab's handler fires; cancelled by subsequent clicks.
+        def _make_tab_handler(idx):
+            def _handler(syms):
+                syms = list(syms)
+                sym  = syms[idx] if idx < len(syms) else ""
+                panel = list(on_sym_change(sym))
+                return [sym] + panel
+            return _handler
+
+        # Each gr.Tab.select fires only for its own tab (not all 12 simultaneously),
+        # so no cancels= needed — just wire each independently.
+        for _i, _tab_evt in enumerate(tab_select_evts):
+            _tab_evt(
+                fn=_make_tab_handler(_i),
+                inputs=[syms_state],
+                outputs=[cur_sym] + PANEL,
+            ).then(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot])
 
         (ref_btn.click(fn=do_refresh, inputs=[cur_sym], outputs=PANEL)
                 .then(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot]))
@@ -1268,27 +1364,30 @@ def build_app():
             _ev = gr.update(visible=_editable)
             _edit_updates = [_ev, _ev] + [_ev] * (MAX_SLOTS * 3)
 
-            # Yield 1: instant — tabs appear with loading placeholder
+            # Yield 1: instant — tabs appear with loading placeholder.
+            # Yield 1: instant — tabs appear with loading placeholder.
+            # Do NOT send gr.update(selected=N) — Gradio 6 turns that into a real
+            # t[N].select server event that gets queued and fires later, jumping the panel.
             loading_status = f'<div style="color:#38bdf8;font-size:12px">&#8987; Loading {username}…</div>'
             loading_panel  = [_hero_placeholder(first_sym), "", "", "", "", "", "*Fetching prices…*", ""]
             yield (
-                [gr.update(selected=0), loading_status, syms, ref, secs, first_sym, wl_update]
+                [gr.update(), loading_status, syms, ref, secs, first_sym, wl_update]
                 + list(_tab_updates(syms))
                 + list(_own_chk_updates(syms))
                 + loading_panel
                 + _edit_updates
             )
 
-            # Yield 2: after prices fetched — show real hero + chart
-            # Safe to call _startup_prices here because cur_sym.change → on_sym_change
-            # is no longer wired, so there is no concurrent PANEL update race.
-            panel_data  = _startup_prices(first_sym, syms)
+            # Yield 2: instant — no blocking calls here.
+            # Live prices are fetched by the chained .then(_startup_prices) after this
+            # generator returns, keeping the generator fast so the phantom t[0].select
+            # fires before any human can click away.
             done_status = f'<div style="color:#22c55e;font-size:12px">&#10003; User <b>{username}</b> loaded.</div>'
             yield (
-                [gr.update(selected=0), done_status, syms, ref, secs, first_sym, wl_update]
-                + list(_tab_updates(syms))
-                + list(_own_chk_updates(syms))
-                + panel_data
+                [gr.update(), done_status, gr.update(), gr.update(), gr.update(), gr.update(), gr.update()]
+                + [gr.update()] * MAX_SLOTS
+                + [gr.update()] * MAX_SLOTS
+                + [gr.update()] * len(PANEL)
                 + _edit_updates
             )
 
@@ -1328,13 +1427,19 @@ def build_app():
             users = list_users()
             return gr.update(choices=users, value=new_name.strip()), "", f'<div style="color:#22c55e;font-size:12px">Renamed <b>{username}</b> → <b>{new_name.strip()}</b>.</div>'
 
-        user_dd.select(fn=do_load_user, inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS)
+        (user_dd.select(fn=do_load_user, inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS)
+                .then(fn=_sync_tabs,      inputs=[syms_state], outputs=tab_objs + own_chk_list)
+                .then(fn=_startup_prices, inputs=[cur_sym, syms_state], outputs=PANEL)
+                .then(fn=_clear_chat,     inputs=[cur_sym], outputs=[chatbot]))
 
-        create_user_btn.click(
+        (create_user_btn.click(
             fn=do_create_user,
             inputs=[new_user_in],
             outputs=[new_user_in, user_dd, user_status],
-        )
+        ).then(fn=do_load_user,    inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS)
+         .then(fn=_sync_tabs,      inputs=[syms_state], outputs=tab_objs + own_chk_list)
+         .then(fn=_startup_prices, inputs=[cur_sym, syms_state], outputs=PANEL)
+         .then(fn=_clear_chat,     inputs=[cur_sym], outputs=[chatbot]))
 
         delete_user_btn.click(
             fn=do_delete_user,
@@ -1523,94 +1628,10 @@ def build_app():
             return gr.update(choices=list_users(), value=DEFAULT_USER)
 
         (demo.load(fn=_on_page_load, outputs=[user_dd])
-             .then(fn=do_load_user, inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS))
-
-        def _startup_prices(cur_sym_val, syms):
-            """Fetch live prices for all tabs at startup; render hero + chart for active tab."""
-            import time as _time
-            import yfinance as yf
-            from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
-            from agents.technical_agent import _session_info as _si_fn
-
-            syms = [s for s in list(syms) if s]
-            cur  = (cur_sym_val or "").strip().upper()
-            if not syms:
-                return [_hero_placeholder(), "", "", "", "", "", "*Run analysis to see AI report.*", ""]
-
-            t       = _time.localtime()
-            h12     = t.tm_hour % 12 or 12
-            ampm    = "AM" if t.tm_hour < 12 else "PM"
-            tz      = _time.strftime("%Z")
-            now_str = f"{h12}:{t.tm_min:02d}:{t.tm_sec:02d} {ampm} {tz}"
-
-            def _fetch_one(s):
-                stock = yf.Ticker(s)
-                ext_last = ext_time = pre_last = reg_last = post_last = ovn_last = None
-                try:
-                    df_1m = stock.history(period="1d", interval="1m", prepost=True)
-                    if df_1m is not None and not df_1m.empty:
-                        ext_last = float(df_1m["Close"].iloc[-1])
-                        ts = df_1m.index[-1]
-                        h, m = ts.hour, ts.minute
-                        ap = "AM" if h < 12 else "PM"
-                        ext_time = f"{h % 12 or 12}:{m:02d} {ap} ET"
-                        for bar_ts in df_1m.index:
-                            bh, bm = bar_ts.hour, bar_ts.minute
-                            price  = float(df_1m.loc[bar_ts, "Close"])
-                            if bh < 9 or (bh == 9 and bm < 30):
-                                pre_last  = price
-                            elif (bh == 9 and bm >= 30) or (10 <= bh < 16):
-                                reg_last  = price
-                            elif 16 <= bh < 20:
-                                post_last = price
-                            elif bh >= 20:
-                                ovn_last  = price
-                except Exception:
-                    pass
-                df_1d = None
-                try:
-                    df_1d = stock.history(period="2d", interval="1d", auto_adjust=True)
-                    if df_1d is not None and not df_1d.empty:
-                        df_1d.index = df_1d.index.tz_localize(None)
-                    else:
-                        df_1d = None
-                except Exception:
-                    pass
-                info = {"_reg_last_price": reg_last}
-                if pre_last  is not None: info["_pre_last_price"]  = pre_last
-                if post_last is not None: info["_post_last_price"] = post_last
-                if ovn_last  is not None: info["_ovn_last_price"]  = ovn_last
-                if ext_last  is not None: info["_ext_last_price"]  = ext_last
-                if ext_time  is not None: info["_ext_last_time"]   = ext_time
-                si = _si_fn(info, df_1d)
-                si["_refreshed_at"] = now_str
-                return s, si
-
-            # Fetch all symbols in parallel with a per-call timeout so a
-            # hung yfinance request (HF rate-limit / cold-start) doesn't stall startup.
-            _TIMEOUT = 20  # seconds per symbol
-            with ThreadPoolExecutor(max_workers=len(syms)) as pool:
-                futures = {pool.submit(_fetch_one, s): s for s in syms}
-                for fut, s in futures.items():
-                    try:
-                        sym, si = fut.result(timeout=_TIMEOUT)
-                        _analysis_cache.setdefault(sym, {})["session_info"] = si
-                    except _FuturesTimeout:
-                        logger.warning(f"_startup_prices [{s}]: timed out after {_TIMEOUT}s")
-                    except Exception as e:
-                        logger.error(f"_startup_prices [{s}]: {e}")
-
-            if not cur or cur not in syms:
-                cur = syms[0]
-            data = _analysis_cache.get(cur, {})
-            si   = data.get("session_info", {})
-            owns = _owned_map.get(cur, False)
-            hero = _hero_html(cur, "N/A", si.get("_reg_last_price") or 0, {}, owns, si) if si else _hero_placeholder(cur)
-            return [
-                hero,
-                _tv_chart(cur, si), "", "", "", "",
-                "*Run analysis to see AI report.*", "",
-            ]
+             .then(fn=do_load_user,    inputs=[user_dd],          outputs=_USER_LOAD_OUTPUTS)
+             .then(fn=_sync_tabs,      inputs=[syms_state],       outputs=tab_objs + own_chk_list)
+             .then(fn=_startup_prices, inputs=[cur_sym, syms_state], outputs=PANEL)
+             .then(fn=_clear_chat,     inputs=[cur_sym],          outputs=[chatbot]))
 
         # ── Watchlist ──────────────────────────────────────────────────────
         def do_wl_add(sym):
