@@ -34,6 +34,20 @@ _legacy = SESSIONS_DIR / ".json"
 if _legacy.exists():
     _legacy.rename(SESSIONS_DIR / f"{_DEFAULT_FILE_STEM}.json")
 
+# ─── Ensure Default User file always exists (first run / fresh HF Space) ─────
+_default_file = SESSIONS_DIR / f"{_DEFAULT_FILE_STEM}.json"
+if not _default_file.exists():
+    try:
+        with open(_default_file, "w") as _f:
+            json.dump({
+                "version": "1.0", "saved_at": None,
+                "symbols": [], "owned": {},
+                "watchlist": [], "refresh_interval": "Off",
+                "snapshots": {},
+            }, _f, indent=2)
+    except Exception:
+        pass
+
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
