@@ -1031,8 +1031,12 @@ def build_app():
 
         def _make_tab_handler(idx):
             def _handler(syms):
-                syms = list(syms)
+                syms = list(syms) if syms else []
                 sym  = syms[idx] if idx < len(syms) else ""
+                if not sym:
+                    # Tab slot has no symbol (hidden slot or ghost event during user switch).
+                    # Return no-ops so the panel is never wiped.
+                    return [gr.update()] * (1 + len(PANEL))
                 panel = list(on_sym_change(sym))
                 return [sym] + panel
             return _handler
@@ -1682,7 +1686,8 @@ def build_app():
         (wl_radio.change(fn=do_wl_select, inputs=[wl_radio, syms_state],
                          outputs=[syms_state, status_msg] + tab_objs + own_chk_list)
                  .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list)
-                 .then(fn=lambda sym, syms: _startup_prices(sym, syms), inputs=[cur_sym, syms_state], outputs=PANEL))
+                 .then(fn=_startup_prices, inputs=[syms_state], outputs=[])
+                 .then(fn=_render_for_cur, inputs=[cur_sym], outputs=PANEL))
 
         # ── Workflow ───────────────────────────────────────────────────────
         def do_wf(vis, cached):
@@ -1912,7 +1917,7 @@ def build_app():
 
         clr_btn.click(fn=do_clear, inputs=[cur_sym], outputs=[chatbot, chat_in, cpy_out])
 
-    demo.queue()
+    demo.queue(default_concurrency_limit=4)
     return demo
 
 
