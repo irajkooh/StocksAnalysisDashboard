@@ -1,0 +1,32 @@
+{
+  "version": "1.0",
+  "saved_at": "2026-05-02T02:37:56.193205+00:00",
+  "symbols": [
+    "SPY"
+  ],
+  "owned": {
+    "SPY": false
+  },
+  "watchlist": [
+    "NBIS",
+    "NEBX",
+    "SOFI",
+    "TTD",
+    "CONL",
+    "MSTR",
+    "MSTZ",
+    "USO",
+    "SCO",
+    "DLXY",
+    "POET",
+    "BTC-USD",
+    "IREN",
+    "IRE",
+    "OPEN",
+    "OPEX",
+    "HOOD",
+    "SPY"
+  ],
+  "refresh_interval": "Off",
+  "snapshots": {}
+}

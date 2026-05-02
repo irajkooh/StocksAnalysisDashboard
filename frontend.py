@@ -42,8 +42,6 @@ _chat_history:   dict = {}
 _chatbot_ctx:    dict = {}
 _watchlist:      list = []
 _current_user:   str  = ""   # set when a user is selected; gates session saves
-_load_version:   list = [0]  # incremented on every user-load AND every tab click;
-                              # _startup_prices aborts if value changed while it ran
 
 SAMPLE_QUESTIONS = [
     "Good entry point?",
@@ -947,10 +945,12 @@ def build_app():
         _ADD_OUTPUTS = [sym_in, syms_state, status_msg] + tab_objs + own_chk_list
         (add_btn.click(fn=do_add, inputs=[sym_in, syms_state], outputs=_ADD_OUTPUTS)
                 .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list)
-                .then(fn=lambda sym, syms: _startup_prices(sym, syms), inputs=[cur_sym, syms_state], outputs=PANEL))
+                .then(fn=_startup_prices, inputs=[syms_state], outputs=[])
+                .then(fn=_render_for_cur, inputs=[cur_sym], outputs=PANEL))
         (sym_in.submit(fn=do_add, inputs=[sym_in, syms_state], outputs=_ADD_OUTPUTS)
                 .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list)
-                .then(fn=lambda sym, syms: _startup_prices(sym, syms), inputs=[cur_sym, syms_state], outputs=PANEL))
+                .then(fn=_startup_prices, inputs=[syms_state], outputs=[])
+                .then(fn=_render_for_cur, inputs=[cur_sym], outputs=PANEL))
 
         # ── Per-tab Delete buttons (reliable: no cur_sym race condition) ───
         def do_delete_slot(syms, idx, cur):
@@ -1197,18 +1197,18 @@ def build_app():
                 _chat_history.pop(s, None)
             return []
 
-        def _startup_prices(cur_sym_val, syms):
-            """Fetch live prices for all tabs at startup; render hero + chart for active tab."""
-            _my_ver = _load_version[0]  # snapshot — if this changes, a tab was clicked
+        def _startup_prices(syms):
+            """Fetch live prices for all tabs into _analysis_cache.
+            Does NOT write to the panel — a separate _render_for_cur step does
+            that using the *current* cur_sym state, so tab clicks are never raced."""
             import time as _time
             import yfinance as yf
             from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
             from agents.technical_agent import _session_info as _si_fn
 
             syms = [s for s in list(syms) if s]
-            cur  = (cur_sym_val or "").strip().upper()
             if not syms:
-                return [_hero_placeholder(), "", "", "", "", "", "*Run analysis to see AI report.*", ""]
+                return
 
             t       = _time.localtime()
             h12     = t.tm_hour % 12 or 12
@@ -1271,38 +1271,29 @@ def build_app():
                     except Exception as e:
                         logger.error(f"_startup_prices [{s}]: {e}")
 
-            if not cur or cur not in syms:
-                cur = syms[0]
-
-            # If a tab was clicked while we were fetching, the tab handler already
-            # rendered the correct panel — don't overwrite it.
-            if _load_version[0] != _my_ver:
-                return [gr.update()] * 8
-
+        def _render_for_cur(cur_sym_val):
+            """Render hero + chart for whichever tab is currently active.
+            Runs as a .then() step after _startup_prices, so cur_sym_val reflects
+            any tab click that happened during the fetch — eliminating the race."""
+            cur = (cur_sym_val or "").strip().upper()
+            if not cur:
+                return [_hero_placeholder(), "", "", "", "", "", "*Run analysis to see AI report.*", ""]
             data = _analysis_cache.get(cur, {})
             si   = data.get("session_info", {})
             owns = _owned_map.get(cur, False)
             hero = _hero_html(cur, "N/A", si.get("_reg_last_price") or 0, {}, owns, si) if si else _hero_placeholder(cur)
-            return [
-                hero,
-                _tv_chart(cur, si), "", "", "", "",
-                "*Run analysis to see AI report.*", "",
-            ]
+            return [hero, _tv_chart(cur, si), "", "", "", "", "*Run analysis to see AI report.*", ""]
 
-        # Per-tab select: each tab wires its own select event with a closure over idx.
-        # Collapsed into ONE server call (no .then chain) to avoid gr.State read-race.
-        # Only the clicked tab's handler fires; cancelled by subsequent clicks.
         def _make_tab_handler(idx):
             def _handler(syms):
-                _load_version[0] += 1   # invalidate any in-flight _startup_prices
                 syms = list(syms)
                 sym  = syms[idx] if idx < len(syms) else ""
                 panel = list(on_sym_change(sym))
                 return [sym] + panel
             return _handler
 
-        # Tab handler wiring is done AFTER the load chains so we can pass
-        # cancels= pointing at the _startup_prices steps (see below).
+        # Wire tab handlers now (no cancels= needed — _render_for_cur reads
+        # cur_sym at execution time, so it always renders the currently active tab).
 
         (ref_btn.click(fn=do_refresh, inputs=[cur_sym], outputs=PANEL)
                 .then(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot]))
@@ -1341,7 +1332,6 @@ def build_app():
                 )
                 return
             _current_user = username
-            _load_version[0] += 1   # invalidate any in-flight _startup_prices
             _owned_map.clear()
             _analysis_cache.clear()
             _chat_history.clear()
@@ -1432,19 +1422,21 @@ def build_app():
             users = list_users()
             return gr.update(choices=users, value=new_name.strip()), "", f'<div style="color:#22c55e;font-size:12px">Renamed <b>{username}</b> → <b>{new_name.strip()}</b>.</div>'
 
-        _user_startup_evt = (user_dd.select(fn=do_load_user, inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS)
-                .then(fn=_sync_tabs,      inputs=[syms_state], outputs=tab_objs + own_chk_list)
-                .then(fn=_startup_prices, inputs=[cur_sym, syms_state], outputs=PANEL))
-        _user_startup_evt.then(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot])
+        (user_dd.select(fn=do_load_user, inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS)
+                .then(fn=_sync_tabs,       inputs=[syms_state], outputs=tab_objs + own_chk_list)
+                .then(fn=_startup_prices,  inputs=[syms_state], outputs=[])
+                .then(fn=_render_for_cur,  inputs=[cur_sym],    outputs=PANEL)
+                .then(fn=_clear_chat,      inputs=[cur_sym],    outputs=[chatbot]))
 
-        _create_startup_evt = (create_user_btn.click(
+        (create_user_btn.click(
             fn=do_create_user,
             inputs=[new_user_in],
             outputs=[new_user_in, user_dd, user_status],
-        ).then(fn=do_load_user,    inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS)
-         .then(fn=_sync_tabs,      inputs=[syms_state], outputs=tab_objs + own_chk_list)
-         .then(fn=_startup_prices, inputs=[cur_sym, syms_state], outputs=PANEL))
-        _create_startup_evt.then(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot])
+        ).then(fn=do_load_user,    inputs=[user_dd],       outputs=_USER_LOAD_OUTPUTS)
+         .then(fn=_sync_tabs,      inputs=[syms_state],    outputs=tab_objs + own_chk_list)
+         .then(fn=_startup_prices, inputs=[syms_state],    outputs=[])
+         .then(fn=_render_for_cur, inputs=[cur_sym],       outputs=PANEL)
+         .then(fn=_clear_chat,     inputs=[cur_sym],       outputs=[chatbot]))
 
         delete_user_btn.click(
             fn=do_delete_user,
@@ -1632,23 +1624,18 @@ def build_app():
             The actual session restore is done by the chained .then(do_load_user) below."""
             return gr.update(choices=list_users(), value=DEFAULT_USER)
 
-        _page_startup_evt = (demo.load(fn=_on_page_load, outputs=[user_dd])
-             .then(fn=do_load_user,    inputs=[user_dd],          outputs=_USER_LOAD_OUTPUTS)
-             .then(fn=_sync_tabs,      inputs=[syms_state],       outputs=tab_objs + own_chk_list)
-             .then(fn=_startup_prices, inputs=[cur_sym, syms_state], outputs=PANEL))
-        _page_startup_evt.then(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot])
+        (demo.load(fn=_on_page_load, outputs=[user_dd])
+             .then(fn=do_load_user,    inputs=[user_dd],       outputs=_USER_LOAD_OUTPUTS)
+             .then(fn=_sync_tabs,      inputs=[syms_state],    outputs=tab_objs + own_chk_list)
+             .then(fn=_startup_prices, inputs=[syms_state],    outputs=[])
+             .then(fn=_render_for_cur, inputs=[cur_sym],       outputs=PANEL)
+             .then(fn=_clear_chat,     inputs=[cur_sym],       outputs=[chatbot]))
 
-        # Wire tab handlers AFTER all load chains so we can cancel _startup_prices.
-        # On slow hardware (HF Space) _startup_prices may still be running when the
-        # user clicks a tab; without cancels= it would overwrite the panel with the
-        # first symbol's data after the tab handler already showed the correct one.
-        _startup_evts = [_user_startup_evt, _create_startup_evt, _page_startup_evt]
         for _i, _tab_evt in enumerate(tab_select_evts):
             _tab_evt(
                 fn=_make_tab_handler(_i),
                 inputs=[syms_state],
                 outputs=[cur_sym] + PANEL,
-                cancels=_startup_evts,
             ).then(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot])
 
         # ── Watchlist ──────────────────────────────────────────────────────

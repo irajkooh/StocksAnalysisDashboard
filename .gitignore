@@ -26,5 +26,5 @@ _secrets/
 **/.DS_Store
 .vscode/
 
-# Session data — user-specific, not committed
-utils/sessions/*.json
+# Session data — committed so deploys include all users
+# utils/sessions/*.json

@@ -1,0 +1,34 @@
+{
+  "version": "1.0",
+  "saved_at": "2026-05-02T05:37:55.525615+00:00",
+  "symbols": [
+    "NBIS",
+    "NEBX",
+    "SOFI",
+    "TTD",
+    "RZLV"
+  ],
+  "owned": {
+    "NBIS": false,
+    "NEBX": false,
+    "SOFI": false,
+    "TTD": false,
+    "RZLV": false
+  },
+  "watchlist": [
+    "NBIS",
+    "NEBX",
+    "SOFI",
+    "TTD",
+    "CONL",
+    "MSTR",
+    "MSTZ",
+    "USO",
+    "SCO",
+    "DLXY",
+    "POET",
+    "RZLV"
+  ],
+  "refresh_interval": "Off",
+  "snapshots": {}
+}
