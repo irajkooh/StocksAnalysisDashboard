@@ -1291,14 +1291,8 @@ def build_app():
                 return [sym] + panel
             return _handler
 
-        # Each gr.Tab.select fires only for its own tab (not all 12 simultaneously),
-        # so no cancels= needed — just wire each independently.
-        for _i, _tab_evt in enumerate(tab_select_evts):
-            _tab_evt(
-                fn=_make_tab_handler(_i),
-                inputs=[syms_state],
-                outputs=[cur_sym] + PANEL,
-            ).then(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot])
+        # Tab handler wiring is done AFTER the load chains so we can pass
+        # cancels= pointing at the _startup_prices steps (see below).
 
         (ref_btn.click(fn=do_refresh, inputs=[cur_sym], outputs=PANEL)
                 .then(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot]))
@@ -1427,19 +1421,19 @@ def build_app():
             users = list_users()
             return gr.update(choices=users, value=new_name.strip()), "", f'<div style="color:#22c55e;font-size:12px">Renamed <b>{username}</b> → <b>{new_name.strip()}</b>.</div>'
 
-        (user_dd.select(fn=do_load_user, inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS)
+        _user_startup_evt = (user_dd.select(fn=do_load_user, inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS)
                 .then(fn=_sync_tabs,      inputs=[syms_state], outputs=tab_objs + own_chk_list)
-                .then(fn=_startup_prices, inputs=[cur_sym, syms_state], outputs=PANEL)
-                .then(fn=_clear_chat,     inputs=[cur_sym], outputs=[chatbot]))
+                .then(fn=_startup_prices, inputs=[cur_sym, syms_state], outputs=PANEL))
+        _user_startup_evt.then(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot])
 
-        (create_user_btn.click(
+        _create_startup_evt = (create_user_btn.click(
             fn=do_create_user,
             inputs=[new_user_in],
             outputs=[new_user_in, user_dd, user_status],
         ).then(fn=do_load_user,    inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS)
          .then(fn=_sync_tabs,      inputs=[syms_state], outputs=tab_objs + own_chk_list)
-         .then(fn=_startup_prices, inputs=[cur_sym, syms_state], outputs=PANEL)
-         .then(fn=_clear_chat,     inputs=[cur_sym], outputs=[chatbot]))
+         .then(fn=_startup_prices, inputs=[cur_sym, syms_state], outputs=PANEL))
+        _create_startup_evt.then(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot])
 
         delete_user_btn.click(
             fn=do_delete_user,
@@ -1627,11 +1621,24 @@ def build_app():
             The actual session restore is done by the chained .then(do_load_user) below."""
             return gr.update(choices=list_users(), value=DEFAULT_USER)
 
-        (demo.load(fn=_on_page_load, outputs=[user_dd])
+        _page_startup_evt = (demo.load(fn=_on_page_load, outputs=[user_dd])
              .then(fn=do_load_user,    inputs=[user_dd],          outputs=_USER_LOAD_OUTPUTS)
              .then(fn=_sync_tabs,      inputs=[syms_state],       outputs=tab_objs + own_chk_list)
-             .then(fn=_startup_prices, inputs=[cur_sym, syms_state], outputs=PANEL)
-             .then(fn=_clear_chat,     inputs=[cur_sym],          outputs=[chatbot]))
+             .then(fn=_startup_prices, inputs=[cur_sym, syms_state], outputs=PANEL))
+        _page_startup_evt.then(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot])
+
+        # Wire tab handlers AFTER all load chains so we can cancel _startup_prices.
+        # On slow hardware (HF Space) _startup_prices may still be running when the
+        # user clicks a tab; without cancels= it would overwrite the panel with the
+        # first symbol's data after the tab handler already showed the correct one.
+        _startup_evts = [_user_startup_evt, _create_startup_evt, _page_startup_evt]
+        for _i, _tab_evt in enumerate(tab_select_evts):
+            _tab_evt(
+                fn=_make_tab_handler(_i),
+                inputs=[syms_state],
+                outputs=[cur_sym] + PANEL,
+                cancels=_startup_evts,
+            ).then(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot])
 
         # ── Watchlist ──────────────────────────────────────────────────────
         def do_wl_add(sym):
