@@ -20,6 +20,7 @@ import re
 import tempfile
 import requests as req_lib
 import gradio as gr
+import rich
 
 _GRADIO_MAJOR = int(gr.__version__.split(".")[0])
 
@@ -28,7 +29,7 @@ from utils.config import (
     DEFAULT_WATCHLIST, DEFAULT_TABS, REFRESH_OPTIONS, MAX_CHATBOT_MEMORY,
 )
 from utils.device import get_device_label
-from utils.session_manager import load_session, save_session, list_users, create_user, delete_user, rename_user
+from utils.session_manager import load_session, save_session, list_users, create_user, delete_user, rename_user, DEFAULT_USER
 from utils.tts_engine import text_to_speech_file
 
 logger = logging.getLogger(__name__)
@@ -725,7 +726,7 @@ def build_app():
         # ── User Management ────────────────────────────────────────────────
         with gr.Row(elem_id="user_mgmt_row"):
             user_dd         = gr.Dropdown(
-                choices=[], value=None,
+                choices=list_users(), value=None,
                 label="Select User", scale=3, interactive=True,
             )
             load_user_btn   = gr.Button("Load",    variant="primary",   scale=1)
@@ -807,18 +808,19 @@ def build_app():
                 # MAX_SLOTS tabs exist at all times; unused ones are hidden.
                 # Adding a symbol makes the next hidden slot visible with the new label.
                 # Deleting hides the slot.
-                tab_objs     = []   # gr.Tab objects
-                del_tab_btns  = []  # per-tab delete buttons
-                own_chk_list  = []  # per-tab "I OWN" checkboxes
-                mv_left_btns  = []  # per-tab ◀ move-left buttons
-                mv_right_btns = []  # per-tab ▶ move-right buttons
+                tab_objs         = []  # gr.Tab objects
+                del_tab_btns     = []  # per-tab delete buttons
+                own_chk_list     = []  # per-tab "I OWN" checkboxes
+                mv_left_btns     = []  # per-tab ◀ move-left buttons
+                mv_right_btns    = []  # per-tab ▶ move-right buttons
+                _tab_select_deps = []  # per-tab select deps for chaining
 
-                with gr.Tabs():
+                with gr.Tabs() as tabs_grp:
                     for i in range(MAX_SLOTS):
                         sym     = init_syms[i] if i < len(init_syms) else ""
                         visible = bool(sym)
                         label   = sym if sym else f"__slot{i}__"
-                        with gr.Tab(label=label, visible=visible) as t:
+                        with gr.Tab(label=label, visible=visible, id=i) as t:
                             with gr.Row():
                                 own_chk = gr.Checkbox(
                                     label=f"I OWN {sym}" if sym else "I OWN",
@@ -841,11 +843,12 @@ def build_app():
                             # NOT from the closure variable sym (which is frozen at startup)
                             # This ensures that after add/delete, clicking a tab returns
                             # the symbol currently assigned to that slot.
-                            t.select(
+                            _tab_sel = t.select(
                                 fn=lambda syms, idx=i: list(syms)[idx] if idx < len(list(syms)) else "",
                                 inputs=[syms_state],
                                 outputs=[cur_sym],
                             )
+                            _tab_select_deps.append(_tab_sel)
                             own_chk.change(
                                 fn=lambda v, syms, idx=i: _owned_map.update(
                                     {list(syms)[idx]: v}
@@ -1171,6 +1174,7 @@ def build_app():
 
         def on_sym_change(sym):
             sym = (sym or "").strip().upper()
+            # logger.debug(f"[on_sym_change] sym={sym!r} cache_keys={list(_analysis_cache.keys())}")
             if not sym:
                 return [
                     _hero_placeholder(),
@@ -1190,8 +1194,6 @@ def build_app():
                 ]
             return list(_render_from_data(sym, data))
 
-        cur_sym.change(fn=on_sym_change, inputs=[cur_sym], outputs=PANEL)
-
         def _clear_chat(sym):
             sym = (sym or "").strip().upper()
             _chat_history.pop(sym, None)
@@ -1202,13 +1204,19 @@ def build_app():
                 _chat_history.pop(s, None)
             return []
 
+        # Wire tab select → render PANEL → clear chat (all in one chain per tab).
+        # Using t.select chains instead of cur_sym.change avoids a second PANEL
+        # render triggered by do_load_user programmatically setting cur_sym.
+        for _dep in _tab_select_deps:
+            (_dep
+             .then(fn=on_sym_change, inputs=[cur_sym], outputs=PANEL)
+             .then(fn=_clear_chat,   inputs=[cur_sym], outputs=[chatbot]))
+
         (ref_btn.click(fn=do_refresh, inputs=[cur_sym], outputs=PANEL)
                 .then(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot]))
         (ref_all.click(fn=do_refresh_all, inputs=[syms_state, cur_sym], outputs=PANEL)
                 .then(fn=_clear_chat_all, inputs=[syms_state], outputs=[chatbot]))
         price_btn.click(fn=do_price_refresh, inputs=[cur_sym, syms_state], outputs=[hero_out, status_msg])
-
-        cur_sym.change(fn=_clear_chat, inputs=[cur_sym], outputs=[chatbot])
 
         def do_save(syms, ref):
             try:
@@ -1225,17 +1233,19 @@ def build_app():
 
         # ── User Management callbacks ───────────────────────────────────────
         _USER_LOAD_OUTPUTS = (
-            [user_status, syms_state, ref_dd, ar_secs, cur_sym, wl_radio]
-            + tab_objs + own_chk_list + PANEL
+            [tabs_grp, user_status, syms_state, ref_dd, ar_secs, cur_sym, wl_radio]
+            + tab_objs + own_chk_list
+            + PANEL
         )
 
         def do_load_user(username):
             global _current_user
             if not username:
-                return (
-                    ['<div style="color:#facc15;font-size:12px">Select a user first.</div>']
-                    + [gr.update()] * (len(_USER_LOAD_OUTPUTS) - 1)
+                yield (
+                    [gr.update(), '<div style="color:#facc15;font-size:12px">Select a user first.</div>']
+                    + [gr.update()] * (len(_USER_LOAD_OUTPUTS) - 2)
                 )
+                return
             _current_user = username
             _owned_map.clear()
             _analysis_cache.clear()
@@ -1247,24 +1257,32 @@ def build_app():
             syms = list(sess.get("symbols", []))
             _owned_map.update(sess.get("owned", {}))
             _watchlist.extend(sess.get("watchlist") or list(DEFAULT_WATCHLIST))
-            for s, snap in sess.get("snapshots", {}).items():
-                si = snap.get("session_info")
-                if si:
-                    _analysis_cache.setdefault(s, {})["session_info"] = si
-
-            ref       = "Off"
-            secs      = "0"
+            ref       = sess.get("refresh_interval", "Off")
+            secs      = str(REFRESH_OPTIONS.get(ref, 0))
             first_sym = syms[0] if syms else ""
             wl_update = gr.update(choices=list(_watchlist), value=None)
-            si    = _analysis_cache.get(first_sym, {}).get("session_info", {})
-            owns  = _owned_map.get(first_sym, False)
-            hero  = _hero_html(first_sym, "N/A", 0, {}, owns, si) if si else _hero_placeholder(first_sym)
-            chart = _tv_chart(first_sym, si)
 
-            status = f'<div style="color:#22c55e;font-size:12px">&#10003; User <b>{username}</b> loaded.</div>'
-            state_out = [status, syms, ref, secs, first_sym, wl_update] + list(_tab_updates(syms)) + list(_own_chk_updates(syms))
-            panel_out = [hero, chart, "", "", "", "", "*Run analysis to see AI report.*", ""]
-            return state_out + panel_out
+            # Yield 1: instant — tabs appear with loading placeholder
+            loading_status = f'<div style="color:#38bdf8;font-size:12px">&#8987; Loading {username}…</div>'
+            loading_panel  = [_hero_placeholder(first_sym), "", "", "", "", "", "*Fetching prices…*", ""]
+            yield (
+                [gr.update(selected=0), loading_status, syms, ref, secs, first_sym, wl_update]
+                + list(_tab_updates(syms))
+                + list(_own_chk_updates(syms))
+                + loading_panel
+            )
+
+            # Yield 2: after prices fetched — show real hero + chart
+            # Safe to call _startup_prices here because cur_sym.change → on_sym_change
+            # is no longer wired, so there is no concurrent PANEL update race.
+            panel_data  = _startup_prices(first_sym, syms)
+            done_status = f'<div style="color:#22c55e;font-size:12px">&#10003; User <b>{username}</b> loaded.</div>'
+            yield (
+                [gr.update(selected=0), done_status, syms, ref, secs, first_sym, wl_update]
+                + list(_tab_updates(syms))
+                + list(_own_chk_updates(syms))
+                + panel_data
+            )
 
         def do_create_user(new_name):
             name = new_name.strip()
@@ -1302,11 +1320,7 @@ def build_app():
             users = list_users()
             return gr.update(choices=users, value=new_name.strip()), "", f'<div style="color:#22c55e;font-size:12px">Renamed <b>{username}</b> → <b>{new_name.strip()}</b>.</div>'
 
-        def _chain_after_load(trigger):
-            trigger.then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list)
-
-        _chain_after_load(load_user_btn.click(fn=do_load_user, inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS))
-        _chain_after_load(user_dd.change(fn=do_load_user, inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS))
+        user_dd.select(fn=do_load_user, inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS)
 
         create_user_btn.click(
             fn=do_create_user,
@@ -1496,28 +1510,12 @@ def build_app():
 
         # ── Blank state on every page load — user must be selected first ──
         def _on_page_load():
-            global _current_user
-            _current_user = ""
-            _owned_map.clear()
-            _watchlist.clear()
-            _watchlist.extend(list(DEFAULT_WATCHLIST))
-            _analysis_cache.clear()
+            """Runs on every page load: just pre-select Default User in the dropdown.
+            The actual session restore is done by the chained .then(do_load_user) below."""
+            return gr.update(choices=list_users(), value=DEFAULT_USER)
 
-            syms      = []
-            ref       = "Off"
-            secs      = "0"
-            first_sym = ""
-            wl_update = gr.update(choices=list(_watchlist), value=None)
-            dd_update = gr.update(choices=list_users(), value=None)
-
-            state_out = [dd_update, syms, ref, secs, first_sym, wl_update] + list(_tab_updates(syms)) + list(_own_chk_updates(syms))
-            panel_out = [_hero_placeholder(), "", "", "", "", "", "*Run analysis to see AI report.*", ""]
-            return state_out + panel_out
-
-        demo.load(
-            fn=_on_page_load,
-            outputs=[user_dd, syms_state, ref_dd, ar_secs, cur_sym, wl_radio] + tab_objs + own_chk_list + PANEL,
-        )
+        (demo.load(fn=_on_page_load, outputs=[user_dd])
+             .then(fn=do_load_user, inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS))
 
         def _startup_prices(cur_sym_val, syms):
             """Fetch live prices for all tabs at startup; render hero + chart for active tab."""

@@ -129,7 +129,7 @@ def get_price(ticker: str):
         raise HTTPException(400, "Ticker required")
     cached = _price_cache.get(ticker)
     if cached and (time.time() - cached["_ts"]) < PRICE_CACHE_TTL:
-        logger.debug(f"Price cache hit for {ticker}")
+        # logger.debug(f"Price cache hit for {ticker}")
         return cached["data"]
     try:
         import yfinance as yf

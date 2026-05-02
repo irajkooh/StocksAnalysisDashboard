@@ -25,7 +25,7 @@ import requests as _requests
 
 # ── Logging (clean format, no timestamps in banner phase) ─────────────────────
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("app")

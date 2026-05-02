@@ -22,8 +22,9 @@ _secrets/
 .DS_Store
 
 # Runtime state
-session.json
-utils/session.json
 .DS_Store
 **/.DS_Store
 .vscode/
+
+# Session data — user-specific, not committed
+utils/sessions/*.json

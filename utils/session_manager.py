@@ -15,22 +15,31 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 from datetime import datetime, timezone
 
-from utils.config import SESSION_FILE, IS_HF_SPACE, HF_TOKEN, HF_USER
+from utils.config import UTILS_DIR, IS_HF_SPACE, HF_TOKEN, HF_USER
 
 logger = logging.getLogger(__name__)
 
 _HF_DATASET_REPO = f"{HF_USER}/StocksAnalysisDashboard"
 
-# Per-user sessions directory alongside the legacy session.json
-SESSIONS_DIR = SESSION_FILE.parent / "sessions"
+SESSIONS_DIR = UTILS_DIR / "sessions"
 SESSIONS_DIR.mkdir(exist_ok=True)
 
 _USERNAME_RE = re.compile(r'^[\w\-]{1,32}$')
+
+DEFAULT_USER       = "Default User"
+_DEFAULT_FILE_STEM = "_default_"
+
+# ─── Migrate legacy anonymous session (.json → _default_.json) ───────────────
+_legacy = SESSIONS_DIR / ".json"
+if _legacy.exists():
+    _legacy.rename(SESSIONS_DIR / f"{_DEFAULT_FILE_STEM}.json")
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _user_file(username: str) -> Path:
+    if not username or username == DEFAULT_USER:
+        return SESSIONS_DIR / f"{_DEFAULT_FILE_STEM}.json"
     return SESSIONS_DIR / f"{username}.json"
 
 
@@ -88,51 +97,15 @@ def _hf_push_user(username: str) -> None:
     threading.Thread(target=_push, daemon=True).start()
 
 
-# ─── HF Hub sync (legacy global session) ─────────────────────────────────────
-
-def _hf_pull_session() -> bool:
-    if not IS_HF_SPACE or not HF_TOKEN:
-        return False
-    try:
-        from huggingface_hub import hf_hub_download
-        cached = hf_hub_download(
-            repo_id=_HF_DATASET_REPO,
-            filename="session.json",
-            repo_type="dataset",
-            token=HF_TOKEN,
-            force_download=True,
-        )
-        shutil.copy2(cached, SESSION_FILE)
-        return True
-    except Exception as e:
-        logger.warning(f"Could not pull global session from HF Hub: {e}")
-        return False
-
-
-def _hf_push_session() -> None:
-    if not IS_HF_SPACE or not HF_TOKEN:
-        return
-
-    def _push():
-        try:
-            from huggingface_hub import HfApi
-            api = HfApi(token=HF_TOKEN)
-            api.create_repo(repo_id=_HF_DATASET_REPO, repo_type="dataset",
-                            private=True, exist_ok=True)
-            api.upload_file(path_or_fileobj=str(SESSION_FILE),
-                            path_in_repo="session.json",
-                            repo_id=_HF_DATASET_REPO, repo_type="dataset")
-        except Exception as e:
-            logger.warning(f"Could not push global session to HF Hub: {e}")
-
-    threading.Thread(target=_push, daemon=True).start()
-
-
 # ─── Public API ───────────────────────────────────────────────────────────────
 
 def list_users() -> List[str]:
-    """Return sorted list of existing usernames."""
-    return sorted(p.stem for p in SESSIONS_DIR.glob("*.json"))
+    """Return sorted list of existing usernames (DEFAULT_USER listed first)."""
+    names = []
+    for p in SESSIONS_DIR.glob("*.json"):
+        names.append(DEFAULT_USER if p.stem == _DEFAULT_FILE_STEM else p.stem)
+    others = sorted(n for n in names if n != DEFAULT_USER)
+    return ([DEFAULT_USER] if DEFAULT_USER in names else []) + others
 
 
 def create_user(username: str) -> Tuple[bool, str]:
@@ -140,6 +113,8 @@ def create_user(username: str) -> Tuple[bool, str]:
     username = username.strip()
     if not username:
         return False, "Username cannot be empty."
+    if username == DEFAULT_USER:
+        return False, f"'{DEFAULT_USER}' is a reserved name."
     if not _USERNAME_RE.match(username):
         return False, "Use only letters, numbers, underscores, hyphens (max 32 chars)."
     ufile = _user_file(username)
@@ -156,6 +131,8 @@ def create_user(username: str) -> Tuple[bool, str]:
 
 def delete_user(username: str) -> Tuple[bool, str]:
     """Delete a user's session file. Returns (ok, error_message)."""
+    if username == DEFAULT_USER:
+        return False, f"'{DEFAULT_USER}' cannot be deleted."
     ufile = _user_file(username)
     if not ufile.exists():
         return False, f"User '{username}' not found."
@@ -169,9 +146,13 @@ def delete_user(username: str) -> Tuple[bool, str]:
 
 def rename_user(old_name: str, new_name: str) -> Tuple[bool, str]:
     """Rename a user. Returns (ok, error_message)."""
+    if old_name == DEFAULT_USER:
+        return False, f"'{DEFAULT_USER}' cannot be renamed."
     new_name = new_name.strip()
     if not new_name:
         return False, "New username cannot be empty."
+    if new_name == DEFAULT_USER:
+        return False, f"'{DEFAULT_USER}' is a reserved name."
     if not _USERNAME_RE.match(new_name):
         return False, "Use only letters, numbers, underscores, hyphens (max 32 chars)."
     old_file = _user_file(old_name)
@@ -188,41 +169,20 @@ def rename_user(old_name: str, new_name: str) -> Tuple[bool, str]:
         return False, str(e)
 
 
-def load_session(username: str = "") -> Dict:
-    """Load saved session. Pass username for per-user session, omit for legacy global."""
-    if username:
-        if IS_HF_SPACE:
-            _hf_pull_user(username)
-        ufile = _user_file(username)
-        if ufile.exists():
-            try:
-                with open(ufile, "r") as f:
-                    data = json.load(f)
-                logger.info(f"Session loaded for '{username}': {len(data.get('symbols', []))} symbols")
-                return data
-            except Exception as e:
-                logger.warning(f"Could not load session for '{username}': {e}")
-        return _empty_session()
-
-    # Legacy global session
+def load_session(username: str) -> Dict:
+    """Load saved session for the given username."""
     if IS_HF_SPACE:
-        _hf_pull_session()
-    if SESSION_FILE.exists():
+        _hf_pull_user(username)
+    ufile = _user_file(username)
+    if ufile.exists():
         try:
-            with open(SESSION_FILE, "r") as f:
+            with open(ufile, "r") as f:
                 data = json.load(f)
-            logger.info(f"Global session loaded: {len(data.get('symbols', []))} symbols")
+            logger.info(f"Session loaded for '{username}': {len(data.get('symbols', []))} symbols")
             return data
         except Exception as e:
-            logger.warning(f"Could not load global session: {e}")
+            logger.warning(f"Could not load session for '{username}': {e}")
     return _empty_session()
-
-
-_SKIP_KEYS = {"chart_json", "_ts"}
-
-
-def _strip_snapshot(data: dict) -> dict:
-    return {k: v for k, v in data.items() if k not in _SKIP_KEYS}
 
 
 def save_session(symbols: List[str], owned: Dict[str, bool],
@@ -230,7 +190,7 @@ def save_session(symbols: List[str], owned: Dict[str, bool],
                  refresh_interval: str = "Off",
                  snapshots: Dict[str, dict] = None,
                  username: str = "") -> Tuple[bool, str]:
-    """Persist dashboard state. Pass username for per-user save, omit for legacy global."""
+    """Persist dashboard state for the given username."""
     data = {
         "version":          "1.0",
         "saved_at":         datetime.now(timezone.utc).isoformat(),
@@ -238,30 +198,18 @@ def save_session(symbols: List[str], owned: Dict[str, bool],
         "owned":            owned,
         "watchlist":        watchlist or [],
         "refresh_interval": refresh_interval,
-        "snapshots":        {k: _strip_snapshot(v) for k, v in (snapshots or {}).items()},
+        "snapshots":        {},
     }
 
-    if username:
-        ufile = _user_file(username)
-        try:
-            with open(ufile, "w") as f:
-                json.dump(data, f, indent=2)
-            logger.info(f"Session saved for '{username}': {symbols}")
-            _hf_push_user(username)
-            return True, ""
-        except Exception as e:
-            logger.error(f"Could not save session for '{username}': {e}")
-            return False, str(e)
-
-    # Legacy global session
+    ufile = _user_file(username)
     try:
-        with open(SESSION_FILE, "w") as f:
+        with open(ufile, "w") as f:
             json.dump(data, f, indent=2)
-        logger.info(f"Global session saved: {symbols}")
-        _hf_push_session()
+        logger.info(f"Session saved for '{username}': {symbols}")
+        _hf_push_user(username)
         return True, ""
     except Exception as e:
-        logger.error(f"Could not save global session: {e}")
+        logger.error(f"Could not save session for '{username}': {e}")
         return False, str(e)
 
 

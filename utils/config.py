@@ -11,27 +11,6 @@ ROOT_DIR      = Path(__file__).parent.parent
 UTILS_DIR     = Path(__file__).parent
 STATIC_DIR    = ROOT_DIR / "static"
 
-def _resolve_session_file() -> Path:
-    """Return a writable path for session.json.
-    On HF Spaces the git-tracked app dir may be read-only for committed files,
-    so fall back to /tmp if the canonical path is not writable."""
-    canonical = UTILS_DIR / "session.json"
-    try:
-        # Quick write test (won't overwrite — just checks permissions)
-        test = canonical.with_suffix(".write_test")
-        test.write_text("")
-        test.unlink()
-        return canonical
-    except OSError:
-        fallback = Path("/tmp/session.json")
-        # Copy existing data into fallback if not already there
-        if canonical.exists() and not fallback.exists():
-            import shutil
-            shutil.copy2(canonical, fallback)
-        return fallback
-
-SESSION_FILE = _resolve_session_file()
-
 # ─── Deployment ───────────────────────────────────────────────────────────────
 IS_HF_SPACE   = os.getenv("SPACE_ID") is not None
 HF_TOKEN      = os.getenv("HF_TOKEN", "")
@@ -116,7 +95,7 @@ REFRESH_OPTIONS = {
 
 # ─── UI Defaults ──────────────────────────────────────────────────────────────
 DEFAULT_WATCHLIST  = ["NBIS", "NEBX", "SOFI", "TTD", "CONL", "MSTR", "MSTZ", "USO", "SCO", "DLXY", "POET"]
-DEFAULT_TABS       = ["CONL", "MSTZ", "USO", "SCO", "TTD"]  # tabs opened on fresh start
+DEFAULT_TABS       = []   # symbols to open as tabs on fresh start (empty = no tabs)
 CHART_THEME        = "plotly_dark"
 CHART_HEIGHT_MAIN  = 420
 CHART_HEIGHT_RSI   = 160
