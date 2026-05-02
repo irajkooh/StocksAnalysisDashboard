@@ -205,6 +205,9 @@ def save_session(symbols: List[str], owned: Dict[str, bool],
                  snapshots: Dict[str, dict] = None,
                  username: str = "") -> Tuple[bool, str]:
     """Persist dashboard state for the given username."""
+    # Default User is read-only — never persist changes
+    if username == DEFAULT_USER:
+        return True, ""
     data = {
         "version":          "1.0",
         "saved_at":         datetime.now(timezone.utc).isoformat(),

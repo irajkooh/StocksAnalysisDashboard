@@ -1236,6 +1236,8 @@ def build_app():
             [tabs_grp, user_status, syms_state, ref_dd, ar_secs, cur_sym, wl_radio]
             + tab_objs + own_chk_list
             + PANEL
+            + [add_btn, sym_in]
+            + del_tab_btns + mv_left_btns + mv_right_btns
         )
 
         def do_load_user(username):
@@ -1259,8 +1261,20 @@ def build_app():
             _watchlist.extend(sess.get("watchlist") or list(DEFAULT_WATCHLIST))
             ref       = sess.get("refresh_interval", "Off")
             secs      = str(REFRESH_OPTIONS.get(ref, 0))
+
+            # Default User is always read-only with a single fixed stock
+            if username == DEFAULT_USER:
+                syms = ["SPY"]
+                _owned_map.clear()
+                _owned_map["SPY"] = False
+
             first_sym = syms[0] if syms else ""
             wl_update = gr.update(choices=list(_watchlist), value=None)
+
+            # Visibility of edit controls (hidden for Default User)
+            _editable = username != DEFAULT_USER
+            _ev = gr.update(visible=_editable)
+            _edit_updates = [_ev, _ev] + [_ev] * (MAX_SLOTS * 3)
 
             # Yield 1: instant — tabs appear with loading placeholder
             loading_status = f'<div style="color:#38bdf8;font-size:12px">&#8987; Loading {username}…</div>'
@@ -1270,6 +1284,7 @@ def build_app():
                 + list(_tab_updates(syms))
                 + list(_own_chk_updates(syms))
                 + loading_panel
+                + _edit_updates
             )
 
             # Yield 2: after prices fetched — show real hero + chart
@@ -1282,6 +1297,7 @@ def build_app():
                 + list(_tab_updates(syms))
                 + list(_own_chk_updates(syms))
                 + panel_data
+                + _edit_updates
             )
 
         def do_create_user(new_name):
