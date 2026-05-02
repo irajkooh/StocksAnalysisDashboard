@@ -42,6 +42,8 @@ _chat_history:   dict = {}
 _chatbot_ctx:    dict = {}
 _watchlist:      list = []
 _current_user:   str  = ""   # set when a user is selected; gates session saves
+_load_version:   list = [0]  # incremented on every user-load AND every tab click;
+                              # _startup_prices aborts if value changed while it ran
 
 SAMPLE_QUESTIONS = [
     "Good entry point?",
@@ -1197,6 +1199,7 @@ def build_app():
 
         def _startup_prices(cur_sym_val, syms):
             """Fetch live prices for all tabs at startup; render hero + chart for active tab."""
+            _my_ver = _load_version[0]  # snapshot — if this changes, a tab was clicked
             import time as _time
             import yfinance as yf
             from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
@@ -1270,6 +1273,12 @@ def build_app():
 
             if not cur or cur not in syms:
                 cur = syms[0]
+
+            # If a tab was clicked while we were fetching, the tab handler already
+            # rendered the correct panel — don't overwrite it.
+            if _load_version[0] != _my_ver:
+                return [gr.update()] * 8
+
             data = _analysis_cache.get(cur, {})
             si   = data.get("session_info", {})
             owns = _owned_map.get(cur, False)
@@ -1285,6 +1294,7 @@ def build_app():
         # Only the clicked tab's handler fires; cancelled by subsequent clicks.
         def _make_tab_handler(idx):
             def _handler(syms):
+                _load_version[0] += 1   # invalidate any in-flight _startup_prices
                 syms = list(syms)
                 sym  = syms[idx] if idx < len(syms) else ""
                 panel = list(on_sym_change(sym))
@@ -1331,6 +1341,7 @@ def build_app():
                 )
                 return
             _current_user = username
+            _load_version[0] += 1   # invalidate any in-flight _startup_prices
             _owned_map.clear()
             _analysis_cache.clear()
             _chat_history.clear()
