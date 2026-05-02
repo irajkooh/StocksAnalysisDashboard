@@ -63,6 +63,40 @@ def _hf_user_path(username: str) -> str:
 
 # ─── HF Hub sync (per-user) ───────────────────────────────────────────────────
 
+def _hf_pull_all_users() -> None:
+    """On HF Space startup: pull ALL session files from the dataset so list_users() works.
+    HF Space wipes the local filesystem on every redeploy, so without this every user
+    except Default User disappears after a deploy."""
+    if not IS_HF_SPACE or not HF_TOKEN:
+        return
+    try:
+        from huggingface_hub import HfApi, hf_hub_download
+        api = HfApi(token=HF_TOKEN)
+        try:
+            all_files = list(api.list_repo_files(
+                repo_id=_HF_DATASET_REPO, repo_type="dataset", token=HF_TOKEN
+            ))
+        except Exception as e:
+            logger.warning(f"HF pull-all-users: could not list repo files: {e}")
+            return
+        session_files = [f for f in all_files
+                         if f.startswith("sessions/") and f.endswith(".json")]
+        for hf_path in session_files:
+            stem = Path(hf_path).stem
+            local = SESSIONS_DIR / f"{stem}.json"
+            try:
+                cached = hf_hub_download(
+                    repo_id=_HF_DATASET_REPO, filename=hf_path,
+                    repo_type="dataset", token=HF_TOKEN, force_download=True,
+                )
+                shutil.copy2(cached, local)
+                logger.info(f"Startup pull: '{stem}' restored from HF dataset")
+            except Exception as e:
+                logger.warning(f"Startup pull: could not restore '{stem}': {e}")
+    except Exception as e:
+        logger.warning(f"HF pull-all-users failed: {e}")
+
+
 def _hf_pull_user(username: str) -> bool:
     if not IS_HF_SPACE or not HF_TOKEN:
         return False
@@ -240,3 +274,10 @@ def _empty_session() -> Dict:
         "refresh_interval": "Off",
         "snapshots":        {},
     }
+
+
+# ─── HF Space startup: restore all user sessions ─────────────────────────────
+# HF Space wipes the local filesystem on every redeploy.  Session files saved
+# by users in prior runs survive only in the private HF dataset.  Pulling them
+# all here means list_users() finds them immediately on the first page load.
+_hf_pull_all_users()
