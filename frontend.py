@@ -42,6 +42,7 @@ _chat_history:   dict = {}
 _chatbot_ctx:    dict = {}
 _watchlist:      list = []
 _current_user:   str  = ""   # set when a user is selected; gates session saves
+_active_sym:     list = [""] # [0] = currently visible tab symbol; written outside Gradio chain so _render_for_cur always sees latest tab click
 
 SAMPLE_QUESTIONS = [
     "Good entry point?",
@@ -943,9 +944,10 @@ def build_app():
             return _tab_updates(list(syms)) + _own_chk_updates(list(syms))
 
         def _startup_prices(syms):
-            """Fetch live prices for all tabs into _analysis_cache.
-            Does NOT write to the panel — a separate _render_for_cur step does
-            that using the *current* cur_sym state, so tab clicks are never raced."""
+            """Fetch live prices for all tabs into _analysis_cache, then render
+            the panel for whichever tab is currently active (_active_sym[0]).
+            Rendering happens at the END of this ~20s function, so any tab click
+            made during the fetch has already updated _active_sym[0] — no race."""
             import time as _time
             import yfinance as yf
             from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FuturesTimeout
@@ -953,8 +955,7 @@ def build_app():
 
             syms = [s for s in list(syms) if s]
             if not syms:
-                return
-
+                return [gr.update()] * len(PANEL)
             t       = _time.localtime()
             h12     = t.tm_hour % 12 or 12
             ampm    = "AM" if t.tm_hour < 12 else "PM"
@@ -1016,11 +1017,16 @@ def build_app():
                     except Exception as e:
                         logger.error(f"_startup_prices [{s}]: {e}")
 
-        def _render_for_cur(cur_sym_val):
+            # Render panel for whatever tab is active NOW (after all fetches complete).
+            # By this point any tab click the user made during the fetch has already
+            # written _active_sym[0], so we always show the right symbol.
+            return list(_render_for_cur())
+
+        def _render_for_cur():
             """Render hero + chart for whichever tab is currently active.
-            Runs as a .then() step after _startup_prices, so cur_sym_val reflects
-            any tab click that happened during the fetch — eliminating the race."""
-            cur = (cur_sym_val or "").strip().upper()
+            Reads _active_sym[0] (module-level) instead of a Gradio chain State input,
+            so it always sees the latest tab click regardless of chain propagation."""
+            cur = (_active_sym[0] or "").strip().upper()
             if not cur:
                 return [_hero_placeholder(), "", "", "", "", "", "*Run analysis to see AI report.*", ""]
             data = _analysis_cache.get(cur, {})
@@ -1037,6 +1043,7 @@ def build_app():
                     # Tab slot has no symbol (hidden slot or ghost event during user switch).
                     # Return no-ops so the panel is never wiped.
                     return [gr.update()] * (1 + len(PANEL))
+                _active_sym[0] = sym  # update BEFORE panel render so _render_for_cur sees it
                 panel = list(on_sym_change(sym))
                 return [sym] + panel
             return _handler
@@ -1044,12 +1051,10 @@ def build_app():
         _ADD_OUTPUTS = [sym_in, syms_state, status_msg] + tab_objs + own_chk_list
         (add_btn.click(fn=do_add, inputs=[sym_in, syms_state], outputs=_ADD_OUTPUTS)
                 .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list)
-                .then(fn=_startup_prices, inputs=[syms_state], outputs=[])
-                .then(fn=_render_for_cur, inputs=[cur_sym], outputs=PANEL))
+                .then(fn=_startup_prices, inputs=[syms_state], outputs=PANEL))
         (sym_in.submit(fn=do_add, inputs=[sym_in, syms_state], outputs=_ADD_OUTPUTS)
                 .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list)
-                .then(fn=_startup_prices, inputs=[syms_state], outputs=[])
-                .then(fn=_render_for_cur, inputs=[cur_sym], outputs=PANEL))
+                .then(fn=_startup_prices, inputs=[syms_state], outputs=PANEL))
 
         # ── Per-tab Delete buttons (reliable: no cur_sym race condition) ───
         def do_delete_slot(syms, idx, cur):
@@ -1330,9 +1335,16 @@ def build_app():
         def do_load_user(username):
             global _current_user
             if not username:
+                # No-op: yield gr.update() for every output so the chain
+                # steps (_sync_tabs, _startup_prices) receive stable values
+                # and don't clobber the UI when user_dd is cleared (e.g. after delete).
                 yield (
-                    [gr.update(), '<div style="color:#facc15;font-size:12px">Select a user first.</div>']
-                    + [gr.update()] * (len(_USER_LOAD_OUTPUTS) - 2)
+                    [gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()]
+                    + [gr.update()] * MAX_SLOTS   # tab_objs
+                    + [gr.update()] * MAX_SLOTS   # own_chk_list
+                    + [gr.update()] * len(PANEL)  # PANEL
+                    + [gr.update(), gr.update()]   # add_btn, sym_in
+                    + [gr.update()] * (MAX_SLOTS * 3)  # del_tab_btns + mv_left + mv_right
                 )
                 return
             _current_user = username
@@ -1356,6 +1368,7 @@ def build_app():
                 _owned_map["SPY"] = False
 
             first_sym = syms[0] if syms else ""
+            _active_sym[0] = first_sym  # seed so _render_for_cur shows correct tab after startup
             wl_update = gr.update(choices=list(_watchlist), value=None)
 
             # Visibility of edit controls (hidden for Default User)
@@ -1407,6 +1420,7 @@ def build_app():
                 return gr.update(), f'<div style="color:#ef4444;font-size:12px">{err}</div>'
             if _current_user == username:
                 _current_user = ""
+                _active_sym[0] = ""  # clear so _render_for_cur shows placeholder
                 _owned_map.clear()
                 _analysis_cache.clear()
                 _watchlist.clear()
@@ -1426,10 +1440,9 @@ def build_app():
             users = list_users()
             return gr.update(choices=users, value=new_name.strip()), "", f'<div style="color:#22c55e;font-size:12px">Renamed <b>{username}</b> → <b>{new_name.strip()}</b>.</div>'
 
-        (user_dd.select(fn=do_load_user, inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS)
+        (user_dd.change(fn=do_load_user, inputs=[user_dd], outputs=_USER_LOAD_OUTPUTS)
                 .then(fn=_sync_tabs,       inputs=[syms_state], outputs=tab_objs + own_chk_list)
-                .then(fn=_startup_prices,  inputs=[syms_state], outputs=[])
-                .then(fn=_render_for_cur,  inputs=[cur_sym],    outputs=PANEL)
+                .then(fn=_startup_prices,  inputs=[syms_state], outputs=PANEL)
                 .then(fn=_clear_chat,      inputs=[cur_sym],    outputs=[chatbot]))
 
         (create_user_btn.click(
@@ -1438,8 +1451,7 @@ def build_app():
             outputs=[new_user_in, user_dd, user_status],
         ).then(fn=do_load_user,    inputs=[user_dd],       outputs=_USER_LOAD_OUTPUTS)
          .then(fn=_sync_tabs,      inputs=[syms_state],    outputs=tab_objs + own_chk_list)
-         .then(fn=_startup_prices, inputs=[syms_state],    outputs=[])
-         .then(fn=_render_for_cur, inputs=[cur_sym],       outputs=PANEL)
+         .then(fn=_startup_prices, inputs=[syms_state],    outputs=PANEL)
          .then(fn=_clear_chat,     inputs=[cur_sym],       outputs=[chatbot]))
 
         delete_user_btn.click(
@@ -1631,8 +1643,7 @@ def build_app():
         (demo.load(fn=_on_page_load, outputs=[user_dd])
              .then(fn=do_load_user,    inputs=[user_dd],       outputs=_USER_LOAD_OUTPUTS)
              .then(fn=_sync_tabs,      inputs=[syms_state],    outputs=tab_objs + own_chk_list)
-             .then(fn=_startup_prices, inputs=[syms_state],    outputs=[])
-             .then(fn=_render_for_cur, inputs=[cur_sym],       outputs=PANEL)
+             .then(fn=_startup_prices, inputs=[syms_state],    outputs=PANEL)
              .then(fn=_clear_chat,     inputs=[cur_sym],       outputs=[chatbot]))
 
         for _i, _tab_evt in enumerate(tab_select_evts):
@@ -1686,8 +1697,7 @@ def build_app():
         (wl_radio.change(fn=do_wl_select, inputs=[wl_radio, syms_state],
                          outputs=[syms_state, status_msg] + tab_objs + own_chk_list)
                  .then(fn=_sync_tabs, inputs=[syms_state], outputs=tab_objs + own_chk_list)
-                 .then(fn=_startup_prices, inputs=[syms_state], outputs=[])
-                 .then(fn=_render_for_cur, inputs=[cur_sym], outputs=PANEL))
+                 .then(fn=_startup_prices, inputs=[syms_state], outputs=PANEL))
 
         # ── Workflow ───────────────────────────────────────────────────────
         def do_wf(vis, cached):

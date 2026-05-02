@@ -1,12 +1,13 @@
 {
   "version": "1.0",
-  "saved_at": "2026-05-02T05:41:05.474126+00:00",
+  "saved_at": "2026-05-02T14:56:10.693030+00:00",
   "symbols": [
-    "OPEN",
     "OPEX",
     "LEN",
     "DHI",
-    "RKT"
+    "RKT",
+    "SPY",
+    "OPEN"
   ],
   "owned": {
     "OPEN": false,
