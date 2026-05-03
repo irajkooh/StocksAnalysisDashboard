@@ -19,7 +19,7 @@ from utils.config import UTILS_DIR, IS_HF_SPACE, HF_TOKEN, HF_USER
 
 logger = logging.getLogger(__name__)
 
-_HF_DATASET_REPO = f"{HF_USER}/StocksAnalysisDashboard"
+_HF_DATASET_REPO = f"{HF_USER}/StocksAnalysisDashboard_dataset"
 
 SESSIONS_DIR = UTILS_DIR / "sessions"
 SESSIONS_DIR.mkdir(exist_ok=True)
