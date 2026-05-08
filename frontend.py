@@ -1636,15 +1636,12 @@ def build_app():
 
         # ── Blank state on every page load — user must be selected first ──
         def _on_page_load():
-            """Runs on every page load: just pre-select Default User in the dropdown.
-            The actual session restore is done by the chained .then(do_load_user) below."""
+            """Runs on every page load: pre-selects Default User in the dropdown.
+            Setting value=DEFAULT_USER triggers user_dd.change, which runs the full
+            do_load_user → _sync_tabs → _startup_prices → _clear_chat chain once."""
             return gr.update(choices=list_users(), value=DEFAULT_USER)
 
-        (demo.load(fn=_on_page_load, outputs=[user_dd])
-             .then(fn=do_load_user,    inputs=[user_dd],       outputs=_USER_LOAD_OUTPUTS)
-             .then(fn=_sync_tabs,      inputs=[syms_state],    outputs=tab_objs + own_chk_list)
-             .then(fn=_startup_prices, inputs=[syms_state],    outputs=PANEL)
-             .then(fn=_clear_chat,     inputs=[cur_sym],       outputs=[chatbot]))
+        demo.load(fn=_on_page_load, outputs=[user_dd])
 
         for _i, _tab_evt in enumerate(tab_select_evts):
             _tab_evt(
